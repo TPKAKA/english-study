@@ -1,0 +1,79 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { parseVocabularyCsv } from "../lib/vocabulary-csv.js";
+import { importVocabulary, prepareVocabularyImport } from "../lib/vocabulary-import.js";
+
+const catalog = { groups: [{ id: "g", title: "Group" }, { id: "other", title: "Other" }], words: [
+  { word: "Agenda", group_id: "g", meaning: "Old meaning", ipa: "/old/", example: "Old example.", sort_order: 4 }
+] };
+const change = (rows, extra = {}) => ({ rows, groupId: "g", mode: "skip", ...extra });
+
+test("CSV accepts UTF-8 BOM, flexible headers, quotes, commas and embedded newlines", () => {
+  assert.deepEqual(parseVocabularyCsv('\uFEFFVí dụ,Nghĩa,Từ,IPA\r\n"Say ""hello"",\nand continue.",xin chào,hello,/hello/\r\n'), [
+    { word: "hello", meaning: "xin chào", ipa: "/hello/", example: 'Say "hello",\nand continue.' }
+  ]);
+});
+
+test("TSV and semicolon CSV auto-detection and headerless columns work", () => {
+  assert.deepEqual(parseVocabularyCsv("word\tmeaning\nhello\txin chào"), [{ word: "hello", meaning: "xin chào" }]);
+  assert.deepEqual(parseVocabularyCsv("word;meaning;ipa\nhello;xin chào;/hello/"), [{ word: "hello", meaning: "xin chào", ipa: "/hello/" }]);
+  assert.deepEqual(parseVocabularyCsv("hello,xin chào", { header: false }), [{ word: "hello", meaning: "xin chào" }]);
+  assert.deepEqual(parseVocabularyCsv("hello,xin chào,/hello/,Example", { header: false }), [{ word: "hello", meaning: "xin chào", ipa: "/hello/", example: "Example" }]);
+});
+
+test("CSV rejects invalid/duplicate headers, malformed quoting, mismatched columns and limits", () => {
+  for (const source of ["", "word,ipa\nhello,/hello/", "word,Từ,meaning\nhello,other,test", 'word,meaning\nhello,"unterminated', "word,meaning\nhello,test,extra", "word,meaning\n"]) {
+    assert.throws(() => parseVocabularyCsv(source));
+  }
+  assert.throws(() => parseVocabularyCsv("x".repeat(1048577)), /1 MB/);
+  assert.throws(() => parseVocabularyCsv("word,meaning\n" + Array.from({ length: 501 }, (_, i) => `word${i},meaning`).join("\n")), /500/);
+  assert.equal(parseVocabularyCsv("word,meaning\n" + Array.from({ length: 500 }, (_, i) => `word${i},meaning`).join("\n")).length, 500);
+});
+
+test("import defaults to skipping existing case variants and appends new cards in order", () => {
+  const result = prepareVocabularyImport(change([{ word: " agenda ", meaning: "Changed" }, { word: "hello", meaning: "xin chào" }, { word: "bye", meaning: "tạm biệt" }]), catalog);
+  assert.deepEqual(result.counts, { create: 2, update: 0, skip: 1 });
+  assert.deepEqual(result.prepared.map(item => item.row.word), ["Agenda", "hello", "bye"]);
+  assert.deepEqual(result.prepared.map(item => item.row.sort_order), [4, 5, 6]);
+  assert.equal(result.prepared[0].row.ipa, "/old/");
+});
+
+test("update preserves word/progress identity and omitted optional fields, but accepts explicit clears", () => {
+  const result = prepareVocabularyImport(change([{ word: "AGENDA", meaning: "Updated" }], { mode: "update" }), catalog);
+  assert.equal(result.prepared[0].row.word, "Agenda");
+  assert.equal(result.prepared[0].row.ipa, "/old/");
+  assert.equal(result.prepared[0].row.example, "Old example.");
+  assert.equal(result.prepared[0].row.sort_order, 4);
+  assert.equal(result.counts.update, 1);
+  const moved = prepareVocabularyImport(change([{ word: "agenda", meaning: "Updated", ipa: "", example: "" }], { mode: "update", groupId: "other" }), catalog);
+  assert.equal(moved.prepared[0].row.group_id, "other");
+  assert.equal(moved.prepared[0].row.ipa, "");
+  assert.equal(moved.prepared[0].row.sort_order, 0);
+});
+
+test("import validates every row, duplicate normalized words, group, mode and batch limits", () => {
+  for (const input of [change([]), change([{ word: "x", meaning: "" }]), change([{ word: "x", meaning: "ok", ipa: {} }]),
+    change([{ word: "x", meaning: "ok" }, { word: " X ", meaning: "ok" }]), change([{ word: "x", meaning: "ok" }], { groupId: "missing" }),
+    change([{ word: "x", meaning: "ok" }], { mode: "delete" }), change(Array(501).fill({ word: "x", meaning: "ok" }))]) {
+    assert.throws(() => prepareVocabularyImport(input, catalog));
+  }
+  assert.throws(() => prepareVocabularyImport(change([{ word: "valid", meaning: "ok" }, { word: "invalid", meaning: "" }]), catalog), /Bản ghi 2/);
+});
+
+test("import calls one atomic RPC only after all validation and returns DB counts", async () => {
+  const calls = [];
+  const client = { rpc(name, args) { calls.push([name, args]); return { async abortSignal() { return { data: { imported: 1, skipped: 1 }, error: null }; } }; } };
+  assert.deepEqual(await importVocabulary(client, change([{ word: "agenda", meaning: "ok" }, { word: "hello", meaning: "hello" }]), catalog), { imported: 1, skipped: 1 });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "import_vocabulary_words");
+  assert.equal(calls[0][1].p_rows[0].word, "Agenda");
+  await assert.rejects(() => importVocabulary(client, change([{ word: "invalid", meaning: "" }]), catalog));
+  assert.equal(calls.length, 1);
+});
+
+test("import missing migration and database failures never expose backend details", async () => {
+  const client = { rpc() { return { async abortSignal() { return { error: { code: "PGRST202", message: "private detail" } }; } }; } };
+  await assert.rejects(() => importVocabulary(client, change([{ word: "x", meaning: "ok" }]), catalog), /20261006_vocabulary_import.sql/);
+  client.rpc = () => ({ async abortSignal() { throw new Error("private detail"); } });
+  await assert.rejects(() => importVocabulary(client, change([{ word: "x", meaning: "ok" }]), catalog), error => !error.message.includes("private detail"));
+});

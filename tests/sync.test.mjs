@@ -32,15 +32,19 @@ function backend() {
   };
 }
 
-function harness({ db = backend(), user = null, project = config, cache = new Map() } = {}) {
+function harness({ db = backend(), user = null, project = config, cache = new Map(), loginError = null, updateError = null, adminWrite = null } = {}) {
   let currentUser = user, authChange, otp, unsubscribed = false;
   const changes = [];
+  const authCalls = [];
   const api = {
     auth: {
       onAuthStateChange(callback) { authChange = callback; return { data: { subscription: { unsubscribe() { unsubscribed = true; } } } }; },
       async getSession() { return { data: { session: currentUser ? { user: currentUser } : null }, error: null }; },
       async signOut() { currentUser = null; authChange("SIGNED_OUT", null); return { error: null }; },
-      async signInWithOtp(request) { otp = request; return { error: null }; }
+      async signInWithOtp(request) { otp = request; return { error: null }; },
+      async signInWithPassword(request) { authCalls.push(["password", request]); return { error: loginError, data: { session: loginError ? null : { user: userA } } }; },
+      async verifyOtp(request) { authCalls.push(["verify", request]); return { error: loginError, data: { session: loginError ? null : { user: userA } } }; },
+      async updateUser(request) { authCalls.push(["update", request]); return { error: updateError }; }
     },
     from(table) {
       let rows, options = {}, operation, single = false, limit = Infinity, offset = 0, end = Infinity;
@@ -98,14 +102,14 @@ function harness({ db = backend(), user = null, project = config, cache = new Ma
   };
   const sync = createStudySync({ config: project, initialContent: STUDY_CONTENT, createClient: () => api,
     adminRequest: async (client, change) => {
-      if (change) { await mutateContent(client, change, sync.snapshot().catalog, randomUUID); return { ok: true }; }
+      if (change) { if (adminWrite) return adminWrite(client, change); await mutateContent(client, change, sync.snapshot().catalog, randomUUID); return { ok: true }; }
       const result = await client.from("content_editors").select("user_id").eq("user_id", currentUser.id);
       return { ok: !result.error, canEdit: !!result.data?.length };
     },
     storage: { getItem: key => cache.get(key) || null, setItem: (key, value) => cache.set(key, value) },
     onChange: value => changes.push(value), schedule: callback => setImmediate(callback), makeId: randomUUID
   });
-  return { db, sync, cache, changes, get otp() { return otp; }, get unsubscribed() { return unsubscribed; },
+  return { db, sync, cache, changes, authCalls, get otp() { return otp; }, get unsubscribed() { return unsubscribed; },
     async start() { await sync.start(); if (currentUser) await waitFor(() => !sync.snapshot().busy); },
     change(next) { currentUser = next; authChange("SIGNED_IN", next ? { user: next } : null); }
   };
@@ -281,6 +285,69 @@ test("magic links receive the supplied website root and stopping unsubscribes au
   assert.match(app.sync.snapshot().authMessage, /Đã gửi/);
   const before = app.changes.length; app.sync.stop(); app.change(userA); await tick();
   assert.equal(app.unsubscribed, true); assert.equal(app.changes.length, before);
+});
+
+test("password login calls Supabase Auth without redirects, never grants admin by email alone", async () => {
+  const app = harness(); await app.start();
+  assert.equal((await app.sync.signInWithPassword(" a@example.com ", "test-password")).ok, true);
+  assert.deepEqual(app.authCalls[0], ["password", { email: "a@example.com", password: "test-password" }]);
+  assert.equal(app.sync.snapshot().user.id, userA.id);
+  await waitFor(() => !app.sync.snapshot().busy);
+  assert.equal(app.sync.snapshot().canEdit, false);
+  assert.ok(!JSON.stringify(app.changes).includes("test-password"));
+  assert.ok(!JSON.stringify([...app.cache.values()]).includes("test-password"));
+  app.sync.stop();
+});
+
+test("wrong password and unconfirmed email do not create a session or expose Auth errors", async () => {
+  for (const error of [{ code: "invalid_credentials", message: "private-password" }, { code: "email_not_confirmed" }]) {
+    const app = harness({ loginError: error }); await app.start();
+    assert.equal((await app.sync.signInWithPassword("a@example.com", "private-password")).ok, false);
+    assert.equal(app.sync.snapshot().user, null);
+    assert.equal(app.sync.snapshot().canEdit, false);
+    assert.ok(!JSON.stringify(app.changes).includes("private-password"));
+    app.sync.stop();
+  }
+});
+
+test("email code requires valid token and verifies through Supabase before starting a session", async () => {
+  const app = harness(); await app.start();
+  await app.sync.signIn("a@example.com");
+  assert.deepEqual(app.otp, { email: "a@example.com", options: {} });
+  assert.equal((await app.sync.verifyEmailCode("a@example.com", "bad")).ok, false);
+  assert.equal(app.authCalls.length, 0);
+  assert.equal((await app.sync.verifyEmailCode(" a@example.com ", " 123456 ")).ok, true);
+  assert.deepEqual(app.authCalls[0], ["verify", { email: "a@example.com", token: "123456", type: "email" }]);
+  assert.equal(app.sync.snapshot().user.id, userA.id);
+  assert.ok(!JSON.stringify(app.changes).includes("123456"));
+  app.sync.stop();
+});
+
+test("only a signed-in user can set a password, with validation and no password caching", async () => {
+  const guest = harness(); await guest.start();
+  assert.equal((await guest.sync.setPassword("new-private-password")).ok, false);
+  assert.equal(guest.authCalls.length, 0);
+  const app = harness({ user: userA }); await app.start();
+  assert.equal((await app.sync.setPassword("short")).ok, false);
+  assert.equal(app.authCalls.length, 0);
+  assert.equal((await app.sync.setPassword("new-private-password")).ok, true);
+  assert.deepEqual(app.authCalls[0], ["update", { password: "new-private-password" }]);
+  assert.ok(!JSON.stringify(app.changes).includes("new-private-password"));
+  const rejected = harness({ user: userA, updateError: { code: "weak_password", message: "private-password" } }); await rejected.start();
+  assert.equal((await rejected.sync.setPassword("private-password")).ok, false);
+  assert.ok(!rejected.sync.snapshot().authMessage.includes("private-password"));
+  guest.sync.stop(); app.sync.stop(); rejected.sync.stop();
+});
+
+test("import result counts survive sync's content reload", async () => {
+  const app = harness({ user: userA, adminWrite: async () => ({ ok: true, imported: 2, skipped: 3 }) });
+  app.db.tables.content_editors.push({ user_id: userA.id });
+  await app.start(); await waitFor(() => app.sync.snapshot().canEdit);
+  const result = await app.sync.editContent({ entity: "words", action: "import" });
+  assert.equal(result.imported, 2);
+  assert.equal(result.skipped, 3);
+  assert.equal(result.warning, "");
+  app.sync.stop();
 });
 
 test("invalid quiz answers and privileged keys cannot be submitted", async () => {

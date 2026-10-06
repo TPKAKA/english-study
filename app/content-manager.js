@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Pencil, Plus, RefreshCw, Save, Search, Trash2, X } from "lucide-react";
+import { useState } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Pencil, Plus, RefreshCw, Save, Search, Trash2, Upload, UserRound, X } from "lucide-react";
+import Modal from "./content-dialog.js";
+import VocabularyImporter from "./vocabulary-importer.js";
 
 const TYPES = { words: "Từ vựng", groups: "Nhóm từ", readings: "Bài đọc" };
 const PAGE_SIZE = 20;
@@ -9,22 +11,6 @@ const newQuestion = () => ({ prompt: "", options: ["", "", "", ""], answer_index
 
 function Tool({ label, children, ...props }) {
   return <button type="button" className="icon-button" title={label} aria-label={label} {...props}>{children}</button>;
-}
-
-function Modal({ title, busy, onClose, children }) {
-  const ref = useRef(null);
-  const headingId = "content-dialog-title";
-  useEffect(() => {
-    const dialog = ref.current;
-    const previous = document.activeElement;
-    dialog.showModal();
-    return () => { dialog.close(); if (previous?.isConnected) previous.focus(); };
-  }, []);
-  return <dialog ref={ref} className="content-dialog" aria-labelledby={headingId}
-    onCancel={event => { event.preventDefault(); if (!busy) onClose(); }}>
-    <header className="dialog-header"><h2 id={headingId}>{title}</h2><Tool label="Đóng" disabled={busy} onClick={onClose}><X /></Tool></header>
-    {children}
-  </dialog>;
 }
 
 function Field({ label, multiline = false, wide = false, ...props }) {
@@ -39,7 +25,7 @@ function Editor({ entity, row, catalog, initialGroup, busy, onSave, onClose }) {
       .map(question => ({ ...question, options: question.options.slice() })) } : { ...row };
     const nextOrder = list => list.reduce((max, item) => Math.max(max, item.sort_order + 1), 0);
     if (entity === "words") {
-      const group_id = initialGroup || catalog.groups[0]?.id || "";
+      const group_id = catalog.groups.some(group => group.id === initialGroup) ? initialGroup : catalog.groups[0]?.id || "";
       return { word: "", ipa: "", group_id, meaning: "", example: "", sort_order: nextOrder(catalog.words.filter(word => word.group_id === group_id)) };
     }
     const id = crypto.randomUUID();
@@ -147,19 +133,20 @@ function DeleteDialog({ entity, row, questionCount, busy, onDelete, onClose }) {
   </Modal>;
 }
 
-export default function ContentManager({ data, onSave, onReload, onRefreshPermission }) {
+export default function ContentManager({ data, initialAction, onSave, onReload, onRefreshPermission, onSignIn }) {
   const [entity, setEntity] = useState("words");
   const [search, setSearch] = useState("");
-  const [groupFilter, setGroupFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState(initialAction?.groupId || "");
   const [page, setPage] = useState(0);
-  const [dialog, setDialog] = useState(null);
+  const [dialog, setDialog] = useState(initialAction ? { mode: initialAction.mode, row: initialAction.row || null } : null);
   const [message, setMessage] = useState("");
   const { catalog, canEdit, adminBusy, contentLoading } = data;
   const locked = adminBusy || contentLoading;
 
   if (!data.user || !canEdit) return <div className="management-empty">
     <h2>Quản lý nội dung</h2><p className="muted" role="status">{data.user ? data.editorStatus : "Đăng nhập bằng tài khoản được cấp quyền quản lý."}</p>
-    {data.user && <button type="button" onClick={() => void onRefreshPermission()}><RefreshCw />Kiểm tra quyền</button>}
+    <div className="account-actions"><button type="button" onClick={onSignIn}><UserRound />{data.user ? "Tài khoản" : "Đăng nhập"}</button>
+      {data.user && <button type="button" onClick={() => void onRefreshPermission()}><RefreshCw />Kiểm tra quyền</button>}</div>
   </div>;
   if (!catalog) return <div className="management-empty"><p className="muted">Chưa tải được dữ liệu Supabase.</p><button type="button" disabled={locked} onClick={() => void onReload()}><RefreshCw />Tải lại</button></div>;
 
@@ -176,7 +163,7 @@ export default function ContentManager({ data, onSave, onReload, onRefreshPermis
   async function save(change) {
     setMessage("");
     const result = await onSave(change);
-    if (result.ok) setMessage(result.warning || (change.action === "delete" ? "Đã xóa nội dung." : "Đã lưu nội dung."));
+    if (result.ok) setMessage((change.action === "import" ? `Đã lưu ${result.imported} thẻ; bỏ qua ${result.skipped} thẻ.` : change.action === "delete" ? "Đã xóa nội dung." : "Đã lưu nội dung.") + (result.warning ? " " + result.warning : ""));
     return result;
   }
   function switchEntity(next) { setEntity(next); setPage(0); setSearch(""); setGroupFilter(""); setMessage(""); }
@@ -184,7 +171,8 @@ export default function ContentManager({ data, onSave, onReload, onRefreshPermis
   return <div className="content-manager">
     <div className="management-heading"><h2>Quản lý nội dung</h2><div className="row-tools">
       <Tool label="Tải lại nội dung" disabled={locked} onClick={() => void onReload()}><RefreshCw className={contentLoading ? "spinning" : ""} /></Tool>
-      <button type="button" className="primary-button" disabled={locked || (entity === "words" && !catalog.groups.length)} onClick={() => setDialog({ mode: "edit", row: null })}><Plus />Thêm</button>
+      {entity === "words" && <button type="button" disabled={locked || !catalog.groups.length} onClick={() => setDialog({ mode: "import" })}><Upload />Import thẻ</button>}
+      <button type="button" className="primary-button" disabled={locked || (entity === "words" && !catalog.groups.length)} onClick={() => setDialog({ mode: "edit", row: null })}><Plus />{entity === "words" ? "Thêm thẻ" : "Thêm"}</button>
     </div></div>
     <nav className="management-tabs" aria-label="Loại nội dung">{Object.entries(TYPES).map(([value, title]) => <button type="button" key={value} className={entity === value ? "active" : ""} aria-pressed={entity === value} disabled={adminBusy} onClick={() => switchEntity(value)}>{title}</button>)}</nav>
     <div className="management-filters"><label className="search-field"><Search aria-hidden="true" /><input type="search" aria-label="Tìm nội dung" placeholder="Tìm nội dung" value={search} onChange={event => { setSearch(event.target.value); setPage(0); }} /></label>
@@ -208,5 +196,6 @@ export default function ContentManager({ data, onSave, onReload, onRefreshPermis
     </div></div>
     {dialog?.mode === "edit" && <Editor entity={entity} row={dialog.row} catalog={catalog} initialGroup={groupFilter} busy={adminBusy} onSave={save} onClose={() => setDialog(null)} />}
     {dialog?.mode === "delete" && <DeleteDialog entity={entity} row={dialog.row} questionCount={dialog.questionCount} busy={adminBusy} onDelete={save} onClose={() => setDialog(null)} />}
+    {dialog?.mode === "import" && <VocabularyImporter catalog={catalog} initialGroup={groupFilter} busy={adminBusy} onSave={save} onClose={() => setDialog(null)} />}
   </div>;
 }

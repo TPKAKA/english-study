@@ -46,6 +46,12 @@ test("PostgreSQL migration, RLS and atomic reading CRUD", async t => {
       `);
       await db.exec(await sql("supabase/migrations/20261006_content_crud.sql"));
       await db.exec(await sql("supabase/ipa-backfill.sql"));
+      await db.query("insert into public.vocabulary_words (word, group_id, meaning) values ('AGENDA', 'meetings-schedule', 'Case variant')");
+      await denied(async () => db.exec(await sql("supabase/migrations/20261006_vocabulary_import.sql")), "23505");
+      await db.exec("rollback");
+      assert.equal((await db.query("select count(*)::int as total from public.vocabulary_words where lower(word) = 'agenda'")).rows[0].total, 2);
+      await db.query("delete from public.vocabulary_words where word = 'AGENDA'");
+      await db.exec(await sql("supabase/migrations/20261006_vocabulary_import.sql"));
       const { rows } = await db.query("select count(*)::int as total, count(nullif(ipa, ''))::int as pronounced from public.vocabulary_words");
       assert.deepEqual(rows[0], { total: 42, pronounced: 42 });
       await db.query("insert into public.content_editors values ($1), ($2)", [editorId, otherId]);
@@ -122,9 +128,39 @@ test("PostgreSQL migration, RLS and atomic reading CRUD", async t => {
       });
     });
 
+    await t.test("import denies anonymous and ungranted users", async () => {
+      for (const [role, id] of [["anon", null], ["authenticated", learnerId], ["authenticated", otherId]]) {
+        await asRole(role, id, () => denied(() => db.query("select public.import_vocabulary_words('[]'::jsonb, 'skip')")));
+      }
+    });
+
+    await t.test("import is atomic, skips case variants and updates without changing progress identity", async () => {
+      const row = (word, extra = {}) => ({ word, group_id: "meetings-schedule", meaning: "Imported", ipa: "/test/", example: "Example.", sort_order: 20, ...extra });
+      const run = async (rows, mode = "skip") => (await db.query("select public.import_vocabulary_words($1::jsonb, $2) as result", [JSON.stringify(rows), mode])).rows[0].result;
+      await asRole("authenticated", editorId, async () => {
+        assert.deepEqual(await run([row("Agenda"), row("imported-word")]), { imported: 1, skipped: 1 });
+        assert.deepEqual(await run([row(" AGENDA ")], "update"), { imported: 1, skipped: 0 });
+        assert.deepEqual((await db.query("select word, meaning from public.vocabulary_words where lower(word) = 'agenda'")).rows, [{ word: "agenda", meaning: "Imported" }]);
+        await denied(() => run([row("must-roll-back"), row("invalid-group", { group_id: "missing-group" })]), "23503");
+        assert.equal((await db.query("select * from public.vocabulary_words where word = 'must-roll-back'")).rows.length, 0);
+        await denied(() => run([row("another-valid"), row("invalid-meaning", { meaning: "" })]), "22023");
+        assert.equal((await db.query("select * from public.vocabulary_words where word = 'another-valid'")).rows.length, 0);
+        await denied(() => run([row("same"), row(" SAME ")]), "22023");
+        await denied(() => run([]), "22023");
+        await denied(() => run(Array(501).fill(row("same"))), "22023");
+        await denied(() => run([row("bad-mode")], "delete"), "22023");
+        await denied(() => db.query("insert into public.vocabulary_words (word, group_id, meaning) values ('AGENDA', 'meetings-schedule', 'duplicate')"), "23505");
+        await db.query("delete from public.vocabulary_words where word = 'imported-word'");
+      });
+      await asRole("authenticated", learnerId, async () => {
+        assert.equal((await db.query("select is_known from public.vocabulary_progress where word = 'agenda'")).rows[0].is_known, true);
+      });
+    });
+
     await t.test("rerunning migration and IPA backfill preserves editor grants and custom edits", async () => {
       await db.query("update public.vocabulary_words set ipa = '/custom/', meaning = 'Custom meaning' where word = 'reschedule'");
       await db.exec(await sql("supabase/migrations/20261006_content_crud.sql"));
+      await db.exec(await sql("supabase/migrations/20261006_vocabulary_import.sql"));
       await db.exec(await sql("supabase/ipa-backfill.sql"));
       await db.exec(await sql("supabase/seed.sql"));
       assert.deepEqual((await db.query("select ipa, meaning from public.vocabulary_words where word = 'reschedule'")).rows[0], { ipa: "/custom/", meaning: "Custom meaning" });

@@ -13,9 +13,10 @@ const request = (token = "admin-token", body) => new Request("https://example.co
   ...(body === undefined ? {} : { body: typeof body === "string" ? body : JSON.stringify(body) })
 });
 
-function backend({ user = admin, member = true, tableError = null, authError = null, config = env } = {}) {
+function backend({ user = admin, member = true, tableError = null, authError = null, config = env, groups = [], rpcError = null } = {}) {
   const calls = [];
   const client = {
+    rpc(name, args) { calls.push(["rpc", name, args]); return { async abortSignal() { return { data: { imported: 1, skipped: 0 }, error: rpcError }; } }; },
     auth: { async getUser(token) { calls.push(["getUser", token]); return { data: { user }, error: authError }; } },
     from(table) {
       let inserted, single = false;
@@ -26,7 +27,7 @@ function backend({ user = admin, member = true, tableError = null, authError = n
         single() { single = true; return this; },
         async abortSignal() {
           if (table === "content_editors") return { error: tableError, data: member ? [{ user_id: user?.id }] : [] };
-          return { error: null, data: single ? inserted : [] };
+          return { error: null, data: single ? inserted : table === "vocabulary_groups" ? groups : [] };
         }
       };
     }
@@ -110,6 +111,25 @@ test("invalid requests and protected table names cannot be used as CRUD targets"
     assert.equal((await api.POST(request("admin-token", body))).status, 400);
   }
   assert.ok(!api.calls.some(([name]) => name === "insert"));
+});
+
+test("import requires verified admin and editor grant, validates every row and returns counts", async () => {
+  const batch = { entity: "words", action: "import", groupId: "g", mode: "skip", rows: [{ word: "hello", meaning: "xin chào" }] };
+  for (const options of [{ member: false }, { user: { ...admin, email: "learner@example.com" } }]) {
+    const api = backend(options);
+    assert.equal((await api.POST(request("token", batch))).status, 403);
+    assert.ok(!api.calls.some(([name]) => name === "rpc"));
+  }
+  const api = backend({ groups: [{ id: "g", sort_order: 0 }] });
+  const response = await api.POST(request("token", batch));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, imported: 1, skipped: 0 });
+  for (const invalid of [{ ...batch, entity: "groups" }, { ...batch, rows: [] }, { ...batch, mode: "upsert" }, { ...batch, rows: [...batch.rows, { word: "bad", meaning: "" }] }]) {
+    assert.equal((await api.POST(request("token", invalid))).status, 400);
+  }
+  assert.equal(api.calls.filter(([name]) => name === "rpc").length, 1);
+  const missing = backend({ groups: [{ id: "g" }], rpcError: { code: "PGRST202" } });
+  assert.match((await (await missing.POST(request("token", batch))).json()).error, /vocabulary_import.sql/);
 });
 
 test("the real Supabase SDK forwards each request's JWT to Auth and database without a shared session", async () => {

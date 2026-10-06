@@ -50,7 +50,10 @@ details[open] > summary .disclosure-icon { transform: rotate(180deg); }
 .sync-status svg { margin-top: 2px; width: 16px; height: 16px; }
 .auth-form { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 14px; }
 .auth-form label { display: grid; gap: 4px; flex: 1 1 220px; min-width: 0; font-size: 14px; }
-input[type="email"] { min-width: 0; width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--surface); color: var(--ink); }
+.auth-form input { min-width: 0; width: 100%; height: 42px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; background: var(--surface); color: var(--ink); }
+.alternate-login, .password-settings { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 14px; }
+.alternate-login > .account-actions { margin-top: 12px; }
+.default-password-button { margin-top: 12px; }
 .auth-message { margin: 8px 0 0; }
 .auth-message:empty { display: none; }
 .account-session { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
@@ -70,6 +73,10 @@ input[type="email"] { min-width: 0; width: 100%; height: 42px; border: 1px solid
 .flashcard-example { color: var(--muted); font-style: italic; max-width: 46ch; overflow-wrap: anywhere; }
 .flashcard-ipa { font-family: "Segoe UI", "Arial", sans-serif; color: var(--muted); font-size: 20px; overflow-wrap: anywhere; max-width: 100%; }
 .pronunciation-tools { display: flex; align-items: center; gap: 10px; min-height: 42px; margin-top: 10px; font-size: 13px; }
+.card-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.card-tools .pronunciation-tools { margin-top: 0; min-width: 0; }
+.vocabulary-toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 16px; }
+.vocabulary-toolbar button { font-size: 14px; }
 .empty-deck { min-height: 260px; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .empty-deck > svg { width: 32px; height: 32px; color: var(--success); }
 .deck-actions { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-top: 14px; }
@@ -105,6 +112,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .management-heading, .dialog-header, .question-edit-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .management-heading h2, .dialog-header h2, .management-empty h2 { margin: 0; font-size: 20px; line-height: 1.4; overflow-wrap: anywhere; }
 .row-tools { display: flex; gap: 6px; flex-shrink: 0; }
+.management-heading { flex-wrap: wrap; }
+.management-heading > .row-tools { flex-wrap: wrap; max-width: 100%; }
 .management-tabs { display: flex; gap: 0; margin: 18px 0 14px; }
 .management-tabs button { border-radius: 0; font-size: 14px; flex: 1; }
 .management-tabs button:first-child { border-radius: 6px 0 0 6px; }
@@ -153,6 +162,18 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .option-edit-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
 .option-edit-row > input[type="radio"] { margin: 0; }
 .question-edit-row > .editor-field:last-child { margin-top: 14px; }
+.import-file-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.import-file-tools > span { min-width: 0; overflow-wrap: anywhere; }
+.template-link { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); min-height: 42px; }
+.import-header { align-self: end; min-height: 42px; }
+.import-preview { margin-top: 18px; }
+.import-counts { font-size: 14px; overflow-wrap: anywhere; }
+.import-table-scroll { max-height: 300px; overflow: auto; border-block: 1px solid var(--line); }
+.import-table-scroll table { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: 13px; text-align: left; }
+.import-table-scroll th, .import-table-scroll td { padding: 8px; vertical-align: top; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
+.import-table-scroll th { position: sticky; top: 0; background: var(--surface); }
+.import-table-scroll td .ipa-text { display: block; }
+.import-table-scroll th:last-child { width: 95px; }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 @media (max-width: 480px) {
   main { padding-inline: 16px; padding-top: 18px; }
