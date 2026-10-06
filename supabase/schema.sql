@@ -8,9 +8,10 @@ create table if not exists public.vocabulary_groups (
 
 create table if not exists public.vocabulary_words (
   word text primary key check (char_length(word) between 1 and 200),
-  group_id text not null references public.vocabulary_groups(id) on delete cascade,
+  group_id text not null references public.vocabulary_groups(id) on delete restrict,
   meaning text not null,
   example text not null default '',
+  ipa text not null default '',
   sort_order integer not null default 0
 );
 

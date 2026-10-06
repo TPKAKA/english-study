@@ -1,3 +1,5 @@
+import { BRITISH_IPA } from "./lib/pronunciation.js";
+
 const G=[
 {n:"Họp và lịch",w:[
 ["reschedule","dời lịch","We had to reschedule the call because the client was travelling."],
@@ -66,6 +68,6 @@ q:[
 const groupIds=["meetings-schedule","email-reports","project-management","human-resources","finance-contracts","customers-it"];
 const readingIds=["remote-work","meetings"];
 export const STUDY_CONTENT={
-  groups:G.map((group,i)=>({...group,id:groupIds[i]})),
+  groups:G.map((group,i)=>({...group,id:groupIds[i],w:group.w.map(word=>[...word,BRITISH_IPA[word[0]] || ""])})),
   readings:R.map((reading,i)=>({...reading,id:readingIds[i]}))
 };

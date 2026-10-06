@@ -1,14 +1,53 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Check, CheckCheck, ChevronDown, Cloud, CloudOff, ListChecks, LogOut, Mail, RefreshCw, RotateCcw, Shuffle, UserRound, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Check, CheckCheck, ChevronDown, Cloud, CloudOff, ListChecks, LogOut, Mail, RefreshCw, RotateCcw, Settings2, Shuffle, UserRound, Volume2, VolumeX, X } from "lucide-react";
 import { STUDY_CONTENT } from "../study-content.js";
 import { createStudySync } from "../lib/study-sync.js";
 import { getSupabaseBrowserClient } from "../lib/supabase-browser.js";
 import { gradeReading } from "../lib/quiz.js";
+import ContentManager from "./content-manager.js";
 
 function IconButton({ label, children, ...props }) {
   return <button type="button" className="icon-button" title={label} aria-label={label} {...props}>{children}</button>;
+}
+
+function PronunciationButton({ word }) {
+  const [supported, setSupported] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [error, setError] = useState("");
+  const active = useRef(null);
+  useEffect(() => {
+    setSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
+    return () => { active.current = null; if ("speechSynthesis" in window) window.speechSynthesis.cancel(); };
+  }, []);
+  useEffect(() => {
+    setSpeaking(false);
+    setError("");
+    return () => { active.current = null; if ("speechSynthesis" in window) window.speechSynthesis.cancel(); };
+  }, [word]);
+
+  function pronounce() {
+    if (!supported || !word) return;
+    active.current = null;
+    window.speechSynthesis.cancel();
+    if (speaking) { setSpeaking(false); return; }
+    const utterance = new window.SpeechSynthesisUtterance(word);
+    utterance.lang = "en-GB";
+    utterance.rate = 0.9;
+    const voice = window.speechSynthesis.getVoices().find(item => item.lang.toLowerCase().replace("_", "-") === "en-gb");
+    if (voice) utterance.voice = voice;
+    active.current = utterance;
+    setError("");
+    setSpeaking(true);
+    utterance.onend = () => { if (active.current === utterance) { active.current = null; setSpeaking(false); } };
+    utterance.onerror = () => { if (active.current === utterance) { active.current = null; setSpeaking(false); setError("Không phát được âm thanh trên thiết bị này."); } };
+    try { window.speechSynthesis.speak(utterance); }
+    catch { active.current = null; setSpeaking(false); setError("Không phát được âm thanh trên thiết bị này."); }
+  }
+  return <div className="pronunciation-tools"><IconButton label={supported ? speaking ? "Dừng phát âm" : "Nghe phát âm Anh-Anh" : "Thiết bị không hỗ trợ phát âm"} disabled={!word || !supported} onClick={pronounce}>
+    {speaking ? <VolumeX /> : <Volume2 />}
+  </IconButton>{error && <span className="error-text" role="status">{error}</span>}</div>;
 }
 
 function VocabularyDeck({ group, known, onMark }) {
@@ -47,9 +86,11 @@ function VocabularyDeck({ group, known, onMark }) {
 
   return <>
     <div className="deck-meta"><span>{group.n}</span><span>{completed} / {group.w.length} đã thuộc</span></div>
-    {card ? <button type="button" className="flashcard" onClick={() => setFlipped(!flipped)} aria-label="Lật thẻ" aria-pressed={flipped} title="Lật thẻ">
+    {card ? <button type="button" className="flashcard" onClick={() => setFlipped(!flipped)} aria-label={`Lật thẻ: ${card[0]}. ${flipped ? card[1] + ". " + card[2] + ". " : ""}${card[3] || ""}`} aria-pressed={flipped} title="Lật thẻ">
       {flipped ? <><span className="flashcard-meaning">{card[1]}</span><span className="flashcard-example">{card[2]}</span></> : <span className="flashcard-word">{card[0]}</span>}
-    </button> : <div className="empty-deck"><CheckCheck aria-hidden="true" /><p>Bạn đã thuộc hết nhóm này.</p><button type="button" onClick={() => { setOnlyUnknown(false); setIndex(0); }}>Xem tất cả</button></div>}
+      {card[3] && <span className="flashcard-ipa" lang="en-GB">{card[3]}</span>}
+    </button> : <div className="empty-deck"><CheckCheck aria-hidden="true" /><p>{group.w.length ? "Bạn đã thuộc hết nhóm này." : "Nhóm này chưa có từ vựng."}</p>{group.w.length > 0 && <button type="button" onClick={() => { setOnlyUnknown(false); setIndex(0); }}>Xem tất cả</button>}</div>}
+    <PronunciationButton word={card?.[0]} />
     <div className="deck-actions">
       <div className="navigation-tools">
         <IconButton label="Thẻ trước" disabled={!card} onClick={() => move(-1)}><ArrowLeft /></IconButton>
@@ -115,7 +156,7 @@ function ReadingQuiz({ reading, onSave }) {
 }
 
 export default function StudyApp({ config }) {
-  const [data, setData] = useState(() => ({ content: STUDY_CONTENT, contentStatus: "", known: [], attempts: [], user: null, status: "Tiến độ trên thiết bị", connected: false, busy: false, authBusy: false, authMessage: "", storageFailed: false }));
+  const [data, setData] = useState(() => ({ content: STUDY_CONTENT, contentStatus: "", contentRevision: 0, catalog: null, canEdit: false, editorStatus: "", adminBusy: false, contentLoading: false, known: [], attempts: [], user: null, status: "Tiến độ trên thiết bị", connected: false, busy: false, authBusy: false, authMessage: "", storageFailed: false }));
   const [tab, setTab] = useState("vocabulary");
   const [groupId, setGroupId] = useState(STUDY_CONTENT.groups[0].id);
   const [email, setEmail] = useState("");
@@ -137,9 +178,10 @@ export default function StudyApp({ config }) {
   const known = useMemo(() => new Set(data.known), [data.known]);
   const group = data.content.groups.find(item => item.id === groupId) || data.content.groups[0];
   const reading = data.content.readings.find(item => item.id === tab);
-  const activeTab = reading ? tab : "vocabulary";
+  const managing = tab === "manage";
+  const activeTab = managing ? "manage" : reading ? tab : "vocabulary";
   const scope = data.user?.id || "guest";
-  const contentVersion = data.content === STUDY_CONTENT ? "fallback" : "cloud";
+  const contentVersion = data.contentRevision;
   const titles = Object.fromEntries(data.content.readings.map(item => [item.id, item.t]));
 
   function signIn(event) {
@@ -154,28 +196,30 @@ export default function StudyApp({ config }) {
         <summary><UserRound aria-hidden="true" /><span>Tài khoản</span><ChevronDown className="disclosure-icon" aria-hidden="true" /></summary>
         {data.user ? <div className="account-session"><p className="account-email">{data.user.email}</p><div className="account-actions">
           <IconButton label="Đồng bộ lại" disabled={data.busy || data.authBusy} onClick={() => void sync.current?.refresh()}><RefreshCw className={data.busy ? "spinning" : ""} /></IconButton>
-          <button type="button" disabled={data.authBusy} onClick={() => void sync.current?.signOut()}><LogOut />Đăng xuất</button>
+          <button type="button" disabled={data.authBusy || data.adminBusy} onClick={() => void sync.current?.signOut()}><LogOut />Đăng xuất</button>
         </div></div> : data.connected ? <form className="auth-form" onSubmit={signIn}>
           <label htmlFor="auth-email">Email<input id="auth-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={event => setEmail(event.target.value)} /></label>
           <button type="submit" disabled={data.authBusy}><Mail />{data.authBusy ? "Đang gửi…" : "Gửi liên kết đăng nhập"}</button>
         </form> : <p className="muted">{config.url ? (data.status.startsWith("Chưa kết nối") ? "Không thể kết nối tài khoản." : "Đang kết nối tài khoản…") : "Chưa cấu hình kết nối Supabase."}</p>}
         <p className="auth-message muted" role="status">{data.authMessage}</p>
+        {data.user && <p className="muted" role="status">{data.editorStatus}</p>}
       </details>
       <p className="sync-status muted" role="status">{data.connected ? <Cloud aria-hidden="true" /> : <CloudOff aria-hidden="true" />}<span>{data.status}{data.storageFailed && " · Không thể lưu trên thiết bị"}</span></p>
     </section>
     <nav className="study-tabs" aria-label="Phần học">
       <button type="button" className={activeTab === "vocabulary" ? "active" : ""} aria-pressed={activeTab === "vocabulary"} onClick={() => setTab("vocabulary")}>Từ vựng</button>
       {data.content.readings.map(item => <button type="button" key={item.id} className={activeTab === item.id ? "active" : ""} aria-pressed={activeTab === item.id} onClick={() => setTab(item.id)}>{item.t}</button>)}
+      <button type="button" className={managing ? "active" : ""} aria-pressed={managing} onClick={() => setTab("manage")}><Settings2 />Quản lý</button>
     </nav>
     {data.contentStatus && <p className="content-status muted" role="status">{data.contentStatus}</p>}
-    <section aria-label={reading ? reading.t : "Từ vựng"}>
-      {reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
+    <section aria-label={managing ? "Quản lý nội dung" : reading ? reading.t : "Từ vựng"}>
+      {managing ? <ContentManager key={scope} data={data} onSave={change => sync.current.editContent(change)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : group ? <>
         <nav className="group-tabs" aria-label="Nhóm từ vựng">{data.content.groups.map(item => <button type="button" key={item.id} className={group.id === item.id ? "active" : ""} aria-pressed={group.id === item.id} onClick={() => setGroupId(item.id)}>{item.n}</button>)}</nav>
         <VocabularyDeck key={`${group.id}:${scope}:${contentVersion}`} group={group} known={known} onMark={(word, value) => sync.current?.mark(word, value)} />
-      </>}
+      </> : <p className="muted">Chưa có từ vựng.</p>}
     </section>
-    <details className="history"><summary><ListChecks aria-hidden="true" /><span>Lịch sử bài đọc</span><ChevronDown className="disclosure-icon" aria-hidden="true" /></summary>
+    {!managing && <details className="history"><summary><ListChecks aria-hidden="true" /><span>Lịch sử bài đọc</span><ChevronDown className="disclosure-icon" aria-hidden="true" /></summary>
       {data.attempts.length ? <ul>{data.attempts.map(attempt => <li key={attempt.id}><span>{titles[attempt.reading_id] || attempt.reading_id}</span><strong>{attempt.score} / {attempt.total}</strong><time dateTime={attempt.completed_at}>{new Date(attempt.completed_at).toLocaleString("vi-VN")}</time></li>)}</ul> : <p className="muted">Chưa có kết quả.</p>}
-    </details>
+    </details>}
   </main>;
 }

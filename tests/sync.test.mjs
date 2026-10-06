@@ -3,6 +3,7 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import { createStudySync } from "../lib/study-sync.js";
 import { STUDY_CONTENT } from "../study-content.js";
+import { mutateContent } from "../lib/content-admin.js";
 
 const config = { url: "https://test-project.supabase.co", publishableKey: "sb_publishable_browser_test_key_long" };
 const userA = { id: "user-a", email: "a@example.com" };
@@ -19,13 +20,14 @@ async function waitFor(predicate) {
 
 function backend() {
   return {
-    failWrites: false, holdNext: false, release: null, writes: [],
+    failWrites: false, failReads: false, holdNext: false, release: null, writes: [],
+    holdEditorOwner: null, releaseEditor: null,
     tables: {
       vocabulary_groups: STUDY_CONTENT.groups.map((group, sort_order) => ({ id: group.id, title: group.n, sort_order })),
       vocabulary_words: STUDY_CONTENT.groups.flatMap(group => group.w.map((word, sort_order) => ({ word: word[0], group_id: group.id, meaning: word[1], example: word[2], sort_order }))),
       reading_passages: STUDY_CONTENT.readings.map((reading, sort_order) => ({ id: reading.id, title: reading.t, time_label: reading.time, passage: reading.p, sort_order })),
       reading_questions: STUDY_CONTENT.readings.flatMap(reading => reading.q.map((question, sort_order) => ({ reading_id: reading.id, sort_order, prompt: question.q, options: question.o, answer_index: question.a, explanation: question.e }))),
-      vocabulary_progress: [], reading_attempts: []
+      vocabulary_progress: [], reading_attempts: [], content_editors: []
     }
   };
 }
@@ -41,33 +43,65 @@ function harness({ db = backend(), user = null, project = config, cache = new Ma
       async signInWithOtp(request) { otp = request; return { error: null }; }
     },
     from(table) {
-      let owner, rows, options, sortBy, ascending = true, limit = Infinity;
+      let rows, options = {}, operation, single = false, limit = Infinity, offset = 0, end = Infinity;
+      const filters = [], ordering = [];
       async function execute() {
-        if (rows) {
+        if (operation) {
           if (db.holdNext) { db.holdNext = false; await new Promise(resolve => { db.release = resolve; }); }
           if (db.failWrites) return { error: { message: "Network failure" } };
           db.writes.push({ table, rows, options });
-          for (const row of rows) {
-            const index = db.tables[table].findIndex(existing => table === "vocabulary_progress" ? existing.user_id === row.user_id && existing.word === row.word : existing.id === row.id);
+          const matches = row => filters.every(([column, value]) => row[column] === value);
+          let changed = [];
+          if (operation === "delete") {
+            changed = db.tables[table].filter(matches);
+            db.tables[table] = db.tables[table].filter(row => !matches(row));
+          } else if (operation === "update") {
+            db.tables[table] = db.tables[table].map(row => {
+              if (!matches(row)) return row;
+              const updated = { ...row, ...rows[0] }; changed.push(updated); return updated;
+            });
+          } else for (const row of rows) {
+            const index = db.tables[table].findIndex(existing => table === "vocabulary_progress" ? existing.user_id === row.user_id && existing.word === row.word : table === "vocabulary_words" ? existing.word === row.word : existing.id === row.id);
             if (index < 0) db.tables[table].push(row);
             else if (!options.ignoreDuplicates) db.tables[table][index] = row;
+            changed.push(row);
           }
-          return { error: null };
+          return single ? { data: changed[0], error: changed.length === 1 ? null : { code: "PGRST116" } } : { error: null };
         }
-        let data = db.tables[table].filter(row => !owner || row.user_id === owner);
-        if (sortBy) data.sort((a, b) => a[sortBy] < b[sortBy] ? (ascending ? -1 : 1) : a[sortBy] > b[sortBy] ? (ascending ? 1 : -1) : 0);
-        return { data: data.slice(0, limit), error: null };
+        if (db.failReads) return { data: null, error: { message: "Network failure" } };
+        if (!db.tables[table]) return { data: null, error: { code: "PGRST205" } };
+        const data = db.tables[table].filter(row => filters.every(([column, value]) => row[column] === value));
+        if (table === "content_editors" && filters.some(([, value]) => value === db.holdEditorOwner)) {
+          db.holdEditorOwner = null;
+          await new Promise(resolve => { db.releaseEditor = resolve; });
+        }
+        data.sort((a, b) => {
+          for (const [column, ascending] of ordering) {
+            if (a[column] !== b[column]) return a[column] < b[column] ? (ascending ? -1 : 1) : (ascending ? 1 : -1);
+          }
+          return 0;
+        });
+        return { data: data.slice(offset, Math.min(end + 1, offset + limit)), error: null };
       }
       return {
-        select() { return this; }, eq(_, value) { owner = value; return this; },
-        order(column, opts) { sortBy = column; ascending = opts?.ascending !== false; return this; },
+        select() { return this; }, eq(column, value) { filters.push([column, value]); return this; },
+        order(column, opts) { ordering.push([column, opts?.ascending !== false]); return this; },
+        range(start, last) { offset = start; end = last; return this; },
         limit(value) { limit = value; return this; }, abortSignal() { return this; },
-        upsert(values, opts) { rows = values; options = opts; return this; },
+        upsert(values, opts) { operation = "upsert"; rows = values; options = opts; return this; },
+        insert(value) { operation = "insert"; rows = [value]; return this; },
+        update(value) { operation = "update"; rows = [value]; return this; },
+        delete() { operation = "delete"; return this; }, single() { single = true; return this; },
         then(resolve, reject) { return execute().then(resolve, reject); }
       };
     }
   };
   const sync = createStudySync({ config: project, initialContent: STUDY_CONTENT, createClient: () => api,
+    adminRequest: async (client, change) => {
+      if (change) { await mutateContent(client, change, sync.snapshot().catalog, randomUUID); return { ok: true }; }
+      const result = await client.from("content_editors").select("user_id").eq("user_id", currentUser.id);
+      return { ok: !result.error, canEdit: !!result.data?.length };
+    },
     storage: { getItem: key => cache.get(key) || null, setItem: (key, value) => cache.set(key, value) },
     onChange: value => changes.push(value), schedule: callback => setImmediate(callback), makeId: randomUUID
   });
@@ -108,15 +142,82 @@ test("public lesson content loads from the existing four Supabase tables", async
   await app.start();
   assert.equal(app.sync.snapshot().content.groups.flatMap(group => group.w).length, 42);
   assert.equal(app.sync.snapshot().content.readings.length, 2);
+  assert.equal(app.sync.snapshot().content.readings[0].p, STUDY_CONTENT.readings[0].p);
+  assert.equal(app.sync.snapshot().content.groups[0].w[0][3], "/ˌriːˈʃedjuːl/");
   assert.equal(app.sync.snapshot().contentStatus, "");
   app.sync.stop();
 });
 
-test("an empty database retains the built-in lessons", async () => {
-  const app = harness(); app.db.tables.vocabulary_groups = [];
+test("a successfully loaded empty database does not resurrect deleted lessons", async () => {
+  const app = harness();
+  for (const table of ["vocabulary_groups", "vocabulary_words", "reading_passages", "reading_questions"]) app.db.tables[table] = [];
+  await app.start();
+  assert.deepEqual(app.sync.snapshot().content, { groups: [], readings: [] });
+  assert.equal(app.sync.snapshot().contentStatus, "");
+  app.sync.stop();
+});
+
+test("unreachable lesson tables retain the built-in lessons with IPA", async () => {
+  const app = harness(); app.db.failReads = true;
   await app.start();
   assert.equal(app.sync.snapshot().content, STUDY_CONTENT);
   assert.match(app.sync.snapshot().contentStatus, /bài học có sẵn/);
+  app.sync.stop();
+});
+
+test("guests and ordinary signed-in users cannot submit content mutations", async () => {
+  const guest = harness(); await guest.start();
+  assert.equal((await guest.sync.editContent({ entity: "words", action: "delete", key: "agenda" })).ok, false);
+  const learner = harness({ user: userA }); await learner.start();
+  await waitFor(() => !learner.sync.snapshot().editorStatus.includes("Đang"));
+  assert.equal(learner.sync.snapshot().canEdit, false);
+  assert.equal((await learner.sync.editContent({ entity: "words", action: "delete", key: "agenda" })).ok, false);
+  assert.equal(learner.db.writes.length, 0);
+  guest.sync.stop(); learner.sync.stop();
+});
+
+test("editor can create, update and delete words, reloading lessons without losing progress", async () => {
+  const app = harness({ user: userA }); app.db.tables.content_editors.push({ user_id: userA.id });
+  await app.start(); await waitFor(() => app.sync.snapshot().canEdit);
+  app.sync.mark("agenda", true); await waitFor(() => !app.sync.snapshot().busy);
+  const draft = { word: "collaborate", meaning: "hợp tác", example: "We collaborate.", ipa: "/kəˈlæbəreɪt/", group_id: "meetings-schedule", sort_order: 7 };
+  assert.equal((await app.sync.editContent({ entity: "words", action: "create", draft })).ok, true);
+  assert.ok(app.sync.snapshot().content.groups[0].w.some(word => word[0] === "collaborate" && word[3] === draft.ipa));
+  const revision = app.sync.snapshot().contentRevision;
+  assert.equal((await app.sync.editContent({ entity: "words", action: "update", key: "collaborate", draft: { ...draft, meaning: "cộng tác" } })).ok, true);
+  assert.equal(app.sync.snapshot().contentRevision, revision + 1);
+  assert.equal((await app.sync.editContent({ entity: "words", action: "delete", key: "collaborate" })).ok, true);
+  assert.ok(!app.sync.snapshot().content.groups[0].w.some(word => word[0] === "collaborate"));
+  assert.deepEqual(app.sync.snapshot().known, ["agenda"]);
+  app.db.failWrites = true;
+  assert.equal((await app.sync.editContent({ entity: "words", action: "create", draft })).ok, false);
+  assert.ok(!app.sync.snapshot().catalog.words.some(word => word.word === "collaborate"));
+  assert.equal(app.sync.snapshot().adminBusy, false);
+  app.sync.stop();
+});
+
+test("delayed editor permission cannot grant edit access to another account", async () => {
+  const app = harness({ user: userA });
+  app.db.tables.content_editors = [{ user_id: userA.id }]; app.db.holdEditorOwner = userA.id;
+  await app.start(); await waitFor(() => app.db.releaseEditor);
+  app.change(userB); await waitFor(() => app.sync.snapshot().user?.id === userB.id && !app.sync.snapshot().editorStatus.includes("Đang"));
+  app.db.releaseEditor(); await tick();
+  assert.equal(app.sync.snapshot().canEdit, false);
+  assert.equal((await app.sync.editContent({ entity: "words", action: "delete", key: "agenda" })).ok, false);
+  app.sync.stop();
+});
+
+test("switching account during a content write does not retain editor state", async () => {
+  const app = harness({ user: userA }); app.db.tables.content_editors = [{ user_id: userA.id }];
+  await app.start(); await waitFor(() => app.sync.snapshot().canEdit);
+  app.db.holdNext = true;
+  const pending = app.sync.editContent({ entity: "words", action: "delete", key: "agenda" });
+  await waitFor(() => app.db.release);
+  app.change(userB); await waitFor(() => app.sync.snapshot().user?.id === userB.id);
+  app.db.release();
+  assert.equal((await pending).ok, false);
+  assert.equal(app.sync.snapshot().canEdit, false);
+  assert.equal(app.sync.snapshot().adminBusy, false);
   app.sync.stop();
 });
 

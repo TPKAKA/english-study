@@ -7,6 +7,8 @@ const html = await response.text();
 assert.match(html, /<h1>Business English<\/h1>/);
 assert.match(html, /reschedule/);
 assert.match(html, /Từ vựng/);
+assert.ok(html.includes("/ˌriːˈʃedjuːl/"));
+assert.match(html, /Quản lý/);
 assert.ok(!html.includes("supabase-config.js"));
 assert.ok(!html.includes("sb_secret_"));
 console.log("PASS: Next.js renders the study page with the original lessons");
@@ -24,3 +26,14 @@ const legacy = await fetch(new URL("/business-english.html", origin), { redirect
 assert.equal(legacy.status, 308);
 assert.equal(new URL(legacy.headers.get("location"), origin).pathname, "/");
 console.log("PASS: the legacy HTML address redirects to the Next.js home page");
+
+for (const method of ["GET", "POST"]) {
+  const admin = await fetch(new URL("/api/admin", origin), {
+    method, signal: AbortSignal.timeout(10000),
+    ...(method === "POST" ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entity: "groups", action: "delete", key: "any" }) } : {})
+  });
+  assert.equal(admin.status, 401);
+  assert.match(admin.headers.get("cache-control"), /no-store/);
+  assert.equal((await admin.json()).canEdit, false);
+}
+console.log("PASS: admin permission and CRUD endpoints reject anonymous requests");
