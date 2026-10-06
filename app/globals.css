@@ -124,8 +124,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .search-field { display: flex; align-items: center; position: relative; flex: 2 1 200px; min-width: 0; }
 .search-field svg { position: absolute; left: 12px; color: var(--muted); pointer-events: none; }
 .search-field input { padding-left: 38px; }
-.content-manager input:not([type="radio"]), .content-manager select,
-.content-dialog input:not([type="radio"]), .content-dialog select, .content-dialog textarea {
+.content-manager input:not([type="radio"]):not([type="checkbox"]):not([type="file"]), .content-manager select,
+.content-dialog input:not([type="radio"]):not([type="checkbox"]):not([type="file"]), .content-dialog select, .content-dialog textarea {
   width: 100%; min-width: 0; min-height: 42px; padding: 8px 10px; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px;
 }
 .content-manager .search-field input { padding-left: 38px; }
@@ -150,7 +150,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .editor-field > span { font-weight: 600; }
 .field-wide { grid-column: 1 / -1; }
 .editor-error { min-height: 24px; font-size: 14px; margin: 12px 0; overflow-wrap: anywhere; }
-.dialog-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+.dialog-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
 .danger-button { background: var(--error); border-color: var(--error); color: var(--bg); }
 .delete-message { overflow-wrap: anywhere; }
 .question-editor { border: 0; border-top: 1px solid var(--line); padding: 18px 0 0; margin: 22px 0 0; min-width: 0; }
@@ -165,7 +165,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .import-file-tools { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .import-file-tools > span { min-width: 0; overflow-wrap: anywhere; }
 .template-link { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); min-height: 42px; }
-.import-header { align-self: end; min-height: 42px; }
+.import-header { align-self: end; min-width: 0; min-height: 42px; }
 .import-preview { margin-top: 18px; }
 .import-counts { font-size: 14px; overflow-wrap: anywhere; }
 .import-table-scroll { max-height: 300px; overflow: auto; border-block: 1px solid var(--line); }
