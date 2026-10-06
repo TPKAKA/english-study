@@ -1,43 +1,3 @@
-<!DOCTYPE html>
-<html lang="vi">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Business English: từ vựng và đọc hiểu</title>
-<style>
-:root{--bg:#f6f8fa;--surface:#fff;--ink:#14212b;--mute:#5b6b78;--line:#d5dde4;--accent:#0b6e6e;--accent-ink:#fff;--ok:#1d7a3a;--bad:#b3261e;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10181e;--surface:#18232b;--ink:#e8eef2;--mute:#97a8b5;--line:#2b3a45;--accent:#4fc3c3;--accent-ink:#06201f;--ok:#6fd08c;--bad:#ff8a80}}
-:root[data-theme="dark"]{--bg:#10181e;--surface:#18232b;--ink:#e8eef2;--mute:#97a8b5;--line:#2b3a45;--accent:#4fc3c3;--accent-ink:#06201f;--ok:#6fd08c;--bad:#ff8a80}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Segoe UI",system-ui,-apple-system,Roboto,sans-serif}
-main{max-width:720px;margin:0 auto;padding:16px}
-h1{font-size:1.35rem;margin:8px 0 12px}
-.tabs,.chips{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:8px 14px;cursor:pointer}
-button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-button.on{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
-.card{min-height:220px;display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;padding:24px;background:var(--surface);border:1px solid var(--line);border-radius:14px;cursor:pointer;width:100%}
-.card .w{font-size:2rem;font-weight:700;color:var(--accent)}
-.card .vi{font-size:1.25rem;font-weight:600}
-.card .ex{margin-top:10px;color:var(--mute);font-style:italic;max-width:46ch}
-.bar{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:12px 0;flex-wrap:wrap}
-.meta{color:var(--mute);font-size:.9rem}
-.passage{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;font-family:Georgia,"Times New Roman",serif;line-height:1.75;max-width:68ch}
-.q{margin:18px 0;padding-bottom:12px;border-bottom:1px solid var(--line)}
-.q label{display:block;padding:6px 8px;border-radius:6px;cursor:pointer}
-.q label.ok{background:color-mix(in srgb,var(--ok) 18%,transparent)}
-.q label.bad{background:color-mix(in srgb,var(--bad) 18%,transparent)}
-.exp{margin-top:6px;font-size:.92rem;color:var(--mute)}
-.score{font-weight:700;margin-top:10px}
-</style>
-</head>
-<body>
-<main>
-<h1>Business English: từ vựng và đọc hiểu</h1>
-<div class="tabs" id="tabs"></div>
-<div id="app"></div>
-</main>
-<script>
 const G=[
 {n:"Họp và lịch",w:[
 ["reschedule","dời lịch","We had to reschedule the call because the client was travelling."],
@@ -102,36 +62,10 @@ q:[
 {q:"What do the critics mean by 'treat the symptom rather than the cause'?",o:["The policies are too expensive","The policies ignore the underlying culture","The policies are too strict","The policies are copied from others"],a:1,e:"The measures do not address the culture that rewards looking busy."},
 {q:"What do the critics predict?",o:["Meetings will disappear","New policies will fade into old habits unless culture changes","Managers will work fewer hours","Email will replace all meetings"],a:1,e:"Without a cultural change, policies are absorbed into old habits."}]}
 ];
-let tab=0,gi=0,ci=0,flip=false,only=false,known=new Set(),order=G.map(g=>g.w.slice());
-const $=id=>document.getElementById(id);
-function tabs(){const n=["Từ vựng",...R.map(r=>r.t)];$("tabs").innerHTML=n.map((x,i)=>`<button class="${i===tab?'on':''}" onclick="tab=${i};show()">${x}</button>`).join("")}
-function deck(){const d=order[gi];return only?d.filter(x=>!known.has(x[0])):d}
-function vocab(){
-const d=deck(),c=d[ci];
-let h=`<div class="chips">${G.map((g,i)=>`<button class="${i===gi?'on':''}" onclick="gi=${i};ci=0;flip=false;show()">${g.n}</button>`).join("")}</div>`;
-if(!c){h+=`<p>Bạn đã thuộc hết nhóm này. <button onclick="only=false;ci=0;show()">Xem lại tất cả</button></p>`;$("app").innerHTML=h;return}
-h+=`<button class="card" onclick="flip=!flip;show()" aria-label="Lật thẻ">${flip?`<div class="vi">${c[1]}</div><div class="ex">${c[2]}</div>`:`<div class="w">${c[0]}</div><div class="meta">Chạm để xem nghĩa và ví dụ</div>`}</button>
-<div class="bar"><span class="meta">${ci+1} / ${d.length} · đã thuộc ${known.size}</span>
-<span><button onclick="mark(1)">Đã thuộc</button> <button onclick="mark(0)">Chưa thuộc</button></span></div>
-<div class="bar"><span><button onclick="mv(-1)">Trước</button> <button onclick="mv(1)">Sau</button></span>
-<span><button onclick="shuf()">Trộn thẻ</button> <button class="${only?'on':''}" onclick="only=!only;ci=0;flip=false;show()">Chỉ thẻ chưa thuộc</button></span></div>`;
-$("app").innerHTML=h}
-function mv(s){const n=deck().length;ci=(ci+s+n)%n;flip=false;show()}
-function mark(k){const c=deck()[ci];k?known.add(c[0]):known.delete(c[0]);if(only&&k&&ci>=deck().length)ci=0;else if(!only)ci=(ci+1)%deck().length;flip=false;show()}
-function shuf(){const a=order[gi];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}ci=0;flip=false;show()}
-function read(i){
-const r=R[i-1];
-$("app").innerHTML=`<p class="meta">Mục tiêu thời gian: ${r.time}</p><div class="passage">${r.p}</div>`+
-r.q.map((q,k)=>`<div class="q"><strong>${k+1}. ${q.q}</strong>${q.o.map((o,j)=>`<label id="l${k}_${j}"><input type="radio" name="q${k}" value="${j}"> ${o}</label>`).join("")}<div class="exp" id="e${k}"></div></div>`).join("")+
-`<button class="on" onclick="check(${i-1})">Kiểm tra đáp án</button><div class="score" id="sc"></div>`}
-function check(i){
-let s=0;const r=R[i];
-r.q.forEach((q,k)=>{const v=document.querySelector(`input[name=q${k}]:checked`);
-q.o.forEach((_,j)=>{const l=$(`l${k}_${j}`);l.className=j===q.a?"ok":(v&&+v.value===j?"bad":"")});
-if(v&&+v.value===q.a)s++;$("e"+k).textContent=q.e});
-$("sc").textContent=`Đúng ${s} / ${r.q.length}`}
-function show(){tabs();tab===0?vocab():read(tab)}
-show();
-</script>
-</body>
-</html>
+
+const groupIds=["meetings-schedule","email-reports","project-management","human-resources","finance-contracts","customers-it"];
+const readingIds=["remote-work","meetings"];
+export const STUDY_CONTENT={
+  groups:G.map((group,i)=>({...group,id:groupIds[i]})),
+  readings:R.map((reading,i)=>({...reading,id:readingIds[i]}))
+};
