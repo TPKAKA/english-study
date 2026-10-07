@@ -4,11 +4,14 @@ import { toStudyContent } from "../content/content-admin.js";
 import { createStudyData } from "./study-data.js";
 import { requestAdmin } from "../admin/admin-browser.js";
 import { SESSION_COOKIE_ERROR } from "../api/api-client.js";
+import { createSrsData } from "./srs-data.js";
+import { normalizeSrsRecords, reviewSrsCard } from "./srs.js";
 
 export function createStudySync({ config, initialContent, createClient, storage, onChange, adminRequest = requestAdmin, schedule = callback => setTimeout(callback, 0), makeId = () => crypto.randomUUID(), now = () => new Date().toISOString() }) {
   const storagePrefix = "english-study:" + (config.url || "local") + ":";
   let client = null, user = null, epoch = 0, loading = false, saving = false, disposed = false;
-  let repository;
+  let repository, srsRepository;
+  let srsLoading = false, srsSaving = false, srsStatus = "Lịch ôn trên thiết bị";
   let subscription, content = initialContent, contentStatus = "", authMessage = "", authBusy = false;
   let storageFailed = false, status = "Tiến độ trên thiết bị";
   let catalog = null, contentRevision = 0, contentLoading = false, contentRequest = 0;
@@ -19,9 +22,11 @@ export function createStudySync({ config, initialContent, createClient, storage,
   function load(owner) {
     try {
       const value = JSON.parse(storage.getItem(storagePrefix + owner));
-      if (value && value.words && value.pendingWords && Array.isArray(value.attempts) && Array.isArray(value.pendingAttempts)) return value;
+      if (value && value.words && value.pendingWords && Array.isArray(value.attempts) && Array.isArray(value.pendingAttempts)) return {
+        ...value, srs: normalizeSrsRecords(Object.values(value.srs || {})), pendingSrs: normalizeSrsRecords(Object.values(value.pendingSrs || {}))
+      };
     } catch {}
-    return { words: {}, pendingWords: {}, attempts: [], pendingAttempts: [] };
+    return { words: {}, pendingWords: {}, attempts: [], pendingAttempts: [], srs: {}, pendingSrs: {} };
   }
 
   function persist() {
@@ -38,6 +43,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
       content, contentStatus, contentRevision, catalog, contentLoading,
       canEdit, editorStatus, adminBusy, user, status, authMessage, authBusy, storageFailed,
       connected: !!client, busy: loading || saving,
+      srs: state.srs, srsLoading, srsSaving, srsStatus,
       known: Object.keys(state.words).filter(word => state.words[word].is_known && validWords.has(word)),
       attempts: state.attempts.slice().sort((a, b) => b.completed_at.localeCompare(a.completed_at)).slice(0, 10)
     };
@@ -54,6 +60,44 @@ export function createStudySync({ config, initialContent, createClient, storage,
 
   function current(token) {
     return !disposed && token === epoch;
+  }
+
+  async function flushSrs() {
+    if (!client || !user || srsLoading || srsSaving || disposed || !Object.keys(state.pendingSrs).length) return;
+    const token = epoch, owner = user.id, currentState = state;
+    srsSaving = true; srsStatus = "Đang đồng bộ lịch ôn…"; emit();
+    try {
+      while (current(token)) {
+        const pending = Object.entries(currentState.pendingSrs);
+        if (!pending.length) break;
+        await srsRepository.saveSrs(owner, pending.map(([, row]) => row));
+        if (!current(token)) return;
+        for (const [word, row] of pending) if (currentState.pendingSrs[word] === row) delete currentState.pendingSrs[word];
+        persist();
+      }
+      if (current(token)) srsStatus = "Lịch ôn đã đồng bộ";
+    } catch {
+      if (current(token)) srsStatus = "Chưa đồng bộ được lịch ôn. Lịch vẫn được giữ trên thiết bị.";
+    } finally { if (current(token)) { srsSaving = false; emit(); } }
+  }
+
+  async function refreshSrs() {
+    if (!client || !user || srsLoading || srsSaving || disposed) return;
+    const token = epoch, owner = user.id;
+    srsLoading = true; srsStatus = "Đang tải lịch ôn…"; emit();
+    let success = false;
+    try {
+      const records = normalizeSrsRecords(await srsRepository.loadSrs(owner));
+      if (!current(token)) return;
+      for (const [word, row] of Object.entries(state.pendingSrs)) {
+        if (records[word] && Date.parse(records[word].reviewed_at) >= Date.parse(row.reviewed_at)) delete state.pendingSrs[word];
+      }
+      state.srs = { ...records, ...state.pendingSrs };
+      persist(); success = true; srsStatus = "Lịch ôn đã đồng bộ";
+    } catch {
+      if (current(token)) srsStatus = "Chưa đồng bộ được lịch ôn. Lịch vẫn được giữ trên thiết bị.";
+    } finally { if (current(token)) { srsLoading = false; emit(); } }
+    if (success && current(token)) await flushSrs();
   }
 
   async function flush() {
@@ -123,13 +167,15 @@ export function createStudySync({ config, initialContent, createClient, storage,
     user = nextUser;
     loading = false;
     saving = false;
+    srsLoading = false; srsSaving = false;
+    srsStatus = user ? "Đang tải lịch ôn…" : "Lịch ôn trên thiết bị";
     adminBusy = false;
     canEdit = false;
     editorStatus = user ? "Đang kiểm tra quyền quản lý…" : "";
     state = load(user ? user.id : "guest");
     authMessage = "";
     setStatus(user ? "Đang tải tiến độ…" : "Tiến độ trên thiết bị");
-    if (user) { void refresh(); void loadEditorPermission(); }
+    if (user) { void refresh(); void refreshSrs(); void loadEditorPermission(); }
   }
 
   async function loadEditorPermission() {
@@ -161,6 +207,9 @@ export function createStudySync({ config, initialContent, createClient, storage,
       content = toStudyContent(catalog);
       contentRevision++;
       validWords = new Set(content.groups.flatMap(group => group.w.map(word => word[0])));
+      state.srs = Object.fromEntries(Object.entries(state.srs).filter(([word]) => validWords.has(word)));
+      state.pendingSrs = Object.fromEntries(Object.entries(state.pendingSrs).filter(([word]) => validWords.has(word)));
+      persist();
       contentStatus = "";
       return true;
     } catch {
@@ -180,6 +229,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
       if (!checked.publishableKey || disposed) return;
       client = createClient(checked);
       repository = client.data || createStudyData(client);
+      srsRepository = client.data?.loadSrs ? client.data : createSrsData(client);
       setStatus("Đang kết nối…");
       const result = client.auth.onAuthStateChange((event, session) => {
         // Finish the auth notification before starting dependent requests.
@@ -282,7 +332,20 @@ export function createStudySync({ config, initialContent, createClient, storage,
   }
 
   return {
-    start, refresh, signIn, signOut, setPassword, snapshot, reloadContent: loadContent,
+    start, async refresh() { await refresh(); await refreshSrs(); }, refreshSrs, signIn, signOut, setPassword, snapshot, reloadContent: loadContent,
+    reviewWord(word, rating) {
+      if (disposed || srsLoading || !validWords.has(word)) return false;
+      try {
+        const previous = Object.hasOwn(state.srs, word) ? state.srs[word].card : null;
+        const time = Math.max(Date.parse(now()), previous?.last_review ? Date.parse(previous.last_review) + 1 : 0);
+        if (previous && Date.parse(previous.due) > time) return false;
+        const reviewed_at = new Date(time).toISOString();
+        const row = { word, rating, reviewed_at, previous_card: previous, card: reviewSrsCard(previous, rating, reviewed_at) };
+        state.srs = { ...state.srs, [word]: row };
+        if (user) state.pendingSrs = { ...state.pendingSrs, [word]: row };
+        persist(); emit(); void flushSrs(); return true;
+      } catch { return false; }
+    },
     async signInWithPassword(email, password) {
       if (typeof email !== "string" || !email.trim() || typeof password !== "string" || !password || password.length > 128) return { ok: false };
       return authenticate("signInWithPassword", { email: email.trim(), password });

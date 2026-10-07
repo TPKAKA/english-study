@@ -1,7 +1,7 @@
 # Business English
 
 Website học từ vựng và đọc hiểu, dùng Next.js App Router, React và Supabase.
-Có IPA, gợi ý phiên âm khi thêm/import, phát âm, quản lý thẻ, đồng bộ tiến độ và đăng nhập bằng cookie HttpOnly.
+Có IPA, gợi ý phiên âm khi thêm/import, phát âm, ôn tập ngắt quãng (SRS), quản lý thẻ, đồng bộ tiến độ và đăng nhập bằng cookie HttpOnly.
 
 ## Cấu trúc thư mục
 
@@ -16,14 +16,14 @@ english-study/
     components/               # React UI, grouped by feature
       admin/                  # Content manager and vocabulary importer
       auth/                   # Account password setup
-      study/                  # Flashcards and reading interface
+      study/                  # Flashcards, spaced repetition and reading
       ui/                     # Shared dialog
     lib/                      # Application logic
       admin/                  # Admin permissions and CRUD handlers
       api/                    # Same-origin browser API client
       auth/                   # Auth handlers and HttpOnly cookies
       content/                # Catalog, content validation and updates
-      study/                  # Sync, progress, scoring and pronunciation
+      study/                  # Sync, FSRS scheduling, scoring and pronunciation
       supabase/               # Environment config and server SDK client
       vocabulary/             # CSV, XLSX, batch import and IPA suggestions
     data/
@@ -53,6 +53,7 @@ english-study/
 | Trang và endpoint API | [src/app](src/app/) |
 | Giao diện, màu sắc, bố cục | [globals.css](src/app/globals.css) |
 | Thẻ từ vựng và bài đọc | [study-app.js](src/components/study/study-app.js) |
+| Ôn tập và tính lịch FSRS | [srs-review.js](src/components/study/srs-review.js), [srs.js](src/lib/study/srs.js) |
 | Form thêm/sửa/xóa và import | [components/admin](src/components/admin/) |
 | Đăng nhập, cookie, chống CSRF | [lib/auth](src/lib/auth/) |
 | API gọi từ trình duyệt | [api-client.js](src/lib/api/api-client.js) |
@@ -91,3 +92,12 @@ bằng dữ liệu dự phòng trong development; production cần đủ cấu h
 
 Hướng dẫn migration, cấp quyền admin, đăng nhập, SMTP/OTP, import và deploy:
 [Cấu hình và vận hành](docs/setup.md).
+
+## Ôn Tập Ngắt Quãng
+
+Mở **Ôn tập**, chọn nhóm và **Bắt đầu ôn**. Hiện đáp án rồi đánh giá
+**Quên / Khó / Nhớ / Dễ** để tính lịch tiếp theo bằng TS-FSRS.
+Trước khi đồng bộ lịch theo tài khoản, chạy một lần
+[migration SRS](supabase/migrations/20261007_spaced_repetition.sql) trong Supabase SQL Editor.
+Không cần biến môi trường mới. Chưa chạy migration vẫn lưu lịch trên thiết bị;
+trạng thái **Đã thuộc** cũ giữ nguyên.

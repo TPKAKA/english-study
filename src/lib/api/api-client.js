@@ -98,7 +98,11 @@ export function createStudyApiClient(config, browser = window, fetchRequest = gl
       async getCatalog() { return (await request("/api/content")).catalog; },
       loadProgress: owner => request("/api/progress?owner=" + encodeURIComponent(owner)),
       saveWords: (owner, rows) => save("words", owner, rows),
-      saveAttempts: (owner, rows) => save("attempts", owner, rows)
+      saveAttempts: (owner, rows) => save("attempts", owner, rows),
+      async loadSrs(owner) { return (await request("/api/srs?owner=" + encodeURIComponent(owner))).rows; },
+      async saveSrs(owner, rows) {
+        for (let offset = 0; offset < rows.length; offset += 500) await request("/api/srs", { owner, rows: rows.slice(offset, offset + 500) });
+      }
     },
     auth: {
       getSession: restore,

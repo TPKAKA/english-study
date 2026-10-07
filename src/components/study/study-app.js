@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Check, CheckCheck, ChevronDown, Cloud, CloudOff, KeyRound, ListChecks, LogIn, LogOut, Mail, Pencil, Plus, RefreshCw, RotateCcw, Settings2, Shuffle, Trash2, Upload, UserRound, Volume2, VolumeX, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, CheckCheck, ChevronDown, Cloud, CloudOff, KeyRound, ListChecks, LogIn, LogOut, Mail, Pencil, Plus, RefreshCw, RotateCcw, Settings2, Shuffle, Trash2, Upload, UserRound, X } from "lucide-react";
 import { STUDY_CONTENT } from "../../data/study-content.js";
 import { createStudySync } from "../../lib/study/study-sync.js";
 import { getStudyApiClient } from "../../lib/api/api-client.js";
@@ -9,47 +9,12 @@ import { requestIpaSuggestions } from "../../lib/admin/admin-browser.js";
 import { gradeReading } from "../../lib/study/quiz.js";
 import ContentManager from "../admin/content-manager.js";
 import DefaultPasswordSetup from "../auth/default-password-setup.js";
+import PronunciationButton from "./pronunciation-button.js";
+import SrsReview from "./srs-review.js";
+import { selectSrsQueue } from "../../lib/study/srs.js";
 
 function IconButton({ label, children, ...props }) {
   return <button type="button" className="icon-button" title={label} aria-label={label} {...props}>{children}</button>;
-}
-
-function PronunciationButton({ word }) {
-  const [supported, setSupported] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
-  const [error, setError] = useState("");
-  const active = useRef(null);
-  useEffect(() => {
-    setSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window);
-    return () => { active.current = null; if ("speechSynthesis" in window) window.speechSynthesis.cancel(); };
-  }, []);
-  useEffect(() => {
-    setSpeaking(false);
-    setError("");
-    return () => { active.current = null; if ("speechSynthesis" in window) window.speechSynthesis.cancel(); };
-  }, [word]);
-
-  function pronounce() {
-    if (!supported || !word) return;
-    active.current = null;
-    window.speechSynthesis.cancel();
-    if (speaking) { setSpeaking(false); return; }
-    const utterance = new window.SpeechSynthesisUtterance(word);
-    utterance.lang = "en-GB";
-    utterance.rate = 0.9;
-    const voice = window.speechSynthesis.getVoices().find(item => item.lang.toLowerCase().replace("_", "-") === "en-gb");
-    if (voice) utterance.voice = voice;
-    active.current = utterance;
-    setError("");
-    setSpeaking(true);
-    utterance.onend = () => { if (active.current === utterance) { active.current = null; setSpeaking(false); } };
-    utterance.onerror = () => { if (active.current === utterance) { active.current = null; setSpeaking(false); setError("Không phát được âm thanh trên thiết bị này."); } };
-    try { window.speechSynthesis.speak(utterance); }
-    catch { active.current = null; setSpeaking(false); setError("Không phát được âm thanh trên thiết bị này."); }
-  }
-  return <div className="pronunciation-tools"><IconButton label={supported ? speaking ? "Dừng phát âm" : "Nghe phát âm Anh-Anh" : "Thiết bị không hỗ trợ phát âm"} disabled={!word || !supported} onClick={pronounce}>
-    {speaking ? <VolumeX /> : <Volume2 />}
-  </IconButton>{error && <span className="error-text" role="status">{error}</span>}</div>;
 }
 
 function VocabularyDeck({ group, known, onMark, canEdit, editBusy, onManage }) {
@@ -174,9 +139,16 @@ export default function StudyApp({ config }) {
   const [code, setCode] = useState("");
   const [otpEmail, setOtpEmail] = useState("");
   const [manageIntent, setManageIntent] = useState(null);
+  const [reviewNow, setReviewNow] = useState(0);
   const sync = useRef(null);
   const account = useRef(null);
   const managementRequest = useRef(0);
+  useEffect(() => {
+    const tick = () => setReviewNow(Date.now());
+    tick(); const timer = window.setInterval(tick, 15000);
+    window.addEventListener("focus", tick);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", tick); };
+  }, []);
 
   useEffect(() => {
     const service = createStudySync({
@@ -195,7 +167,9 @@ export default function StudyApp({ config }) {
   const group = data.content.groups.find(item => item.id === groupId) || data.content.groups[0];
   const reading = data.content.readings.find(item => item.id === tab);
   const managing = tab === "manage";
-  const activeTab = managing ? "manage" : reading ? tab : "vocabulary";
+  const reviewing = tab === "review";
+  const activeTab = managing ? "manage" : reviewing ? "review" : reading ? tab : "vocabulary";
+  const reviewCount = useMemo(() => selectSrsQueue(data.content, data.srs || {}, reviewNow).length, [data.content, data.srs, reviewNow]);
   const scope = data.user?.id || "guest";
   const contentVersion = data.contentRevision;
   const titles = Object.fromEntries(data.content.readings.map(item => [item.id, item.t]));
@@ -276,12 +250,14 @@ export default function StudyApp({ config }) {
     </section>
     <nav className="study-tabs" aria-label="Phần học">
       <button type="button" className={activeTab === "vocabulary" ? "active" : ""} aria-pressed={activeTab === "vocabulary"} onClick={() => setTab("vocabulary")}>Từ vựng</button>
+      <button type="button" className={reviewing ? "active" : ""} aria-pressed={reviewing} onClick={() => setTab("review")}><CalendarDays />Ôn tập ({reviewCount})</button>
       {data.content.readings.map(item => <button type="button" key={item.id} className={activeTab === item.id ? "active" : ""} aria-pressed={activeTab === item.id} onClick={() => setTab(item.id)}>{item.t}</button>)}
       <button type="button" className={managing ? "active" : ""} aria-pressed={managing} onClick={() => { setManageIntent(null); setTab("manage"); }}><Settings2 />Quản lý thẻ</button>
     </nav>
     {data.contentStatus && <p className="content-status muted" role="status">{data.contentStatus}</p>}
-    <section aria-label={managing ? "Quản lý nội dung" : reading ? reading.t : "Từ vựng"}>
-      {managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
+    <section aria-label={managing ? "Quản lý nội dung" : reviewing ? "Ôn tập ngắt quãng" : reading ? reading.t : "Từ vựng"}>
+      {reviewing ? <SrsReview key={`${scope}:${contentVersion}`} data={data} now={reviewNow} onReview={(word, rating) => sync.current?.reviewWord(word, rating)} onRefresh={() => sync.current?.refreshSrs()} /> :
+      managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
         <div className="vocabulary-toolbar"><button type="button" onClick={() => manageCards("edit")} disabled={data.adminBusy}><Plus />Thêm thẻ</button>
           <button type="button" onClick={() => manageCards("import")} disabled={data.adminBusy}><Upload />Import thẻ</button></div>
         {group ? <><nav className="group-tabs" aria-label="Nhóm từ vựng">{data.content.groups.map(item => <button type="button" key={item.id} className={group.id === item.id ? "active" : ""} aria-pressed={group.id === item.id} onClick={() => setGroupId(item.id)}>{item.n}</button>)}</nav>

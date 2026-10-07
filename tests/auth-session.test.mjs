@@ -5,6 +5,8 @@ import { stringFromBase64URL, stringToBase64URL } from "@supabase/ssr";
 import { createAuthHandlers } from "../src/lib/auth/auth-server.js";
 import { sessionNames, SESSION_MAX_AGE, withCookieSession, sessionJson, readJson, requestOrigin } from "../src/lib/auth/session-server.js";
 import { createProgressHandlers } from "../src/lib/study/progress-server.js";
+import { createSrsHandlers } from "../src/lib/study/srs-server.js";
+import { reviewSrsCard } from "../src/lib/study/srs.js";
 import { createAdminHandlers } from "../src/lib/admin/admin-server.js";
 import { createIpaHandlers } from "../src/lib/admin/ipa-server.js";
 import { createSupabaseRequestClient } from "../src/lib/supabase/supabase-server.js";
@@ -62,6 +64,63 @@ test("IPA lookup requires the existing cookie, CSRF, confirmed admin email and e
   const wrongEmail = createIpaHandlers({ env: { ...testEnv, ADMIN_EMAIL: "other@example.com" }, createClient: (config, token) => createSupabaseRequestClient(config, token, app.backend.fetchRequest), lookup: () => { lookups++; } });
   assert.equal((await withCookieSession(app.request("/api/admin/ipa", { words: ["hello"] }), internal => wrongEmail.POST(internal), app.dependencies)).status, 403);
   assert.equal(lookups, 1);
+});
+
+test("SRS uses cookie authentication, CSRF and owner checks, but needs no editor permission", async () => {
+  const app = harness(), api = createSrsHandlers(app.dependencies);
+  const reviewed_at = new Date().toISOString();
+  const row = { word: "agenda", rating: 3, reviewed_at, previous_card: null, card: { forged: true }, user_id: "other-user" };
+  const body = { owner: testUser.id, rows: [row] };
+  const post = (value = body, headers) => api.POST(app.request("/api/srs", value, headers));
+  const get = owner => api.GET(app.request("/api/srs?owner=" + owner));
+  assert.equal((await post()).status, 401); assert.equal((await get(testUser.id)).status, 401);
+  await app.login(); app.backend.tables.content_editors = [];
+  for (const headers of [{ "X-CSRF-Token": "" }, { Origin: "https://evil.example.com" }]) assert.equal((await post(body, headers)).status, 403);
+  assert.equal((await post({ ...body, owner: "other-user" })).status, 409);
+  assert.equal((await get("other-user")).status, 409);
+  assert.equal((await post()).status, 200);
+  const saved = app.backend.tables.vocabulary_srs[0];
+  assert.equal(saved.user_id, testUser.id); assert.deepEqual(saved.card, reviewSrsCard(null, 3, reviewed_at));
+  assert.equal(saved.previous_card, undefined); assert.equal(saved.card.forged, undefined);
+  const response = await get(testUser.id);
+  assert.equal(response.headers.get("cache-control"), "private, no-store"); assert.equal(response.headers.get("vary"), "Cookie");
+  assert.deepEqual((await response.json()).rows, [{ word: row.word, rating: 3, reviewed_at, card: saved.card }]);
+});
+
+test("SRS validates whole batches and safely reports an unavailable migration without leaking details", async () => {
+  const app = harness(), api = createSrsHandlers(app.dependencies); await app.login();
+  const row = { word: "agenda", rating: 3, reviewed_at: new Date().toISOString(), previous_card: null };
+  const post = rows => api.POST(app.request("/api/srs", { owner: testUser.id, rows }));
+  for (const rows of [[], Array(501).fill(row), [row, row], [row, { ...row, word: "missing" }], [{ ...row, rating: 0 }], [{ ...row, rating: "3" }], [{ ...row, reviewed_at: "bad" }], [{ ...row, reviewed_at: "1999-01-01T00:00:00.000Z" }], [{ ...row, reviewed_at: new Date(Date.now() + 3600000).toISOString() }], [{ ...row, previous_card: {} }]]) {
+    assert.equal((await post(rows)).status, 400); assert.equal(app.backend.tables.vocabulary_srs.length, 0);
+  }
+  app.backend.srsUnavailable = true;
+  for (const response of [await post([row]), await api.GET(app.request("/api/srs?owner=" + testUser.id))]) {
+    assert.equal(response.status, 503); const message = JSON.stringify(await response.json());
+    assert.match(message, /giữ trên thiết bị/); assert.ok(!message.includes("private"));
+  }
+  assert.equal((await app.progress.GET(app.request("/api/progress?owner=" + testUser.id))).status, 200);
+});
+
+test("SRS reads all paginated schedules and the browser batches writes with cookie/CSRF protection", async () => {
+  const app = harness(), api = createSrsHandlers(app.dependencies); await app.login();
+  const reviewed_at = new Date().toISOString(), card = reviewSrsCard(null, 3, reviewed_at);
+  app.backend.tables.vocabulary_srs = Array.from({ length: 503 }, (_, index) => ({ user_id: testUser.id, word: `word-${index}`, card, rating: 3, reviewed_at }));
+  const result = await api.GET(app.request("/api/srs?owner=" + testUser.id));
+  assert.equal((await result.json()).rows.length, 503);
+  const reads = app.backend.calls.filter(call => call.url.pathname.endsWith("/vocabulary_srs"));
+  assert.deepEqual(reads.map(call => call.url.searchParams.get("offset") || "0"), ["0", "500"]);
+  const calls = [], browser = { location: { hash: "" } };
+  const client = createStudyApiClient({ url: testEnv.url_db }, browser, async (path, init) => {
+    calls.push({ path, init });
+    return Response.json(path === "/api/auth/session" ? { ok: true, user: testUser, csrfToken: "a".repeat(64) } : { ok: true, rows: app.backend.tables.vocabulary_srs });
+  });
+  const rows = app.backend.tables.vocabulary_srs;
+  assert.equal((await client.data.loadSrs(testUser.id)).length, 503);
+  await client.data.saveSrs(testUser.id, rows);
+  const writes = calls.filter(call => call.init.method === "POST");
+  assert.deepEqual(writes.map(call => JSON.parse(call.init.body).rows.length), [500, 3]);
+  assert.ok(writes.every(call => call.path === "/api/srs" && call.init.credentials === "same-origin" && call.init.headers["X-CSRF-Token"] && !call.init.headers.Authorization));
 });
 
 test("server login issues 30-day HttpOnly host-only cookies; response JSON contains no credentials", async () => {

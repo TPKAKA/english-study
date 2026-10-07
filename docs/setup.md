@@ -30,7 +30,8 @@ bài học, tiến độ từ vựng và lịch sử bài đọc. Project: `qhup
    **Nâng cấp IPA và CRUD** bên dưới, không cần nạp lại seed.
    Với project hoàn toàn mới, chạy lần lượt `supabase/schema.sql`,
    `supabase/migrations/20261006_content_crud.sql`,
-   `supabase/migrations/20261006_vocabulary_import.sql`, rồi `supabase/seed.sql`.
+   `supabase/migrations/20261006_vocabulary_import.sql`,
+   `supabase/migrations/20261007_spaced_repetition.sql`, rồi `supabase/seed.sql`.
    Seed nạp 6 nhóm, 42 từ, 2 bài đọc, 8 câu hỏi, không ghi đè bản ghi đã có.
    Nếu chạy lại `schema.sql`, phải chạy lại migration sau đó để khôi phục
    quyền ghi cho editor.
@@ -369,6 +370,49 @@ Lịch sử hiển thị 10 bài làm gần nhất. UUID ngăn tạo bản ghi t
 Điểm hiển thị được tính trên frontend; API tính lại điểm trước khi lưu. Cache giữ cùng định dạng
 và tên khóa với bản HTML để tiến độ trên cùng domain được giữ lại.
 
+## Ôn tập ngắt quãng (SRS)
+
+### Nâng cấp database
+
+Chạy một lần [20261007_spaced_repetition.sql](../supabase/migrations/20261007_spaced_repetition.sql)
+trong **Supabase > SQL Editor**, rồi deploy bản mới. Migration tạo bảng
+`vocabulary_srs` và RPC `save_vocabulary_srs`, không nạp lại bài học hoặc xóa tiến độ cũ.
+Có thể chạy lại an toàn. Agent chỉ kiểm thử SQL bằng PostgreSQL trong bộ nhớ,
+chưa chạy migration trên Supabase thật. Không cần key hay biến môi trường mới.
+Nếu chưa nâng cấp hoặc mất mạng, lịch ôn vẫn lưu trên thiết bị và báo chưa đồng bộ;
+đăng nhập, CRUD và tiến độ đã thuộc vẫn hoạt động độc lập.
+
+### Học và lưu lịch
+
+Mở **Ôn tập** để xem từ đến hạn và từ mới, lọc theo nhóm rồi bấm **Bắt đầu ôn**
+hoặc chọn một từ trong danh sách. IPA vẫn hiển thị, có nút nghe phát âm.
+Sau **Hiện đáp án**, chọn **Quên / Khó / Nhớ / Dễ**. Mỗi nút hiển thị khoảng
+thời gian đến lần ôn tiếp theo; đánh giá xong tự chuyển sang thẻ kế tiếp.
+Từ chưa có lịch được xem là từ mới, kể cả từ đã đánh dấu **Đã thuộc** trước đây.
+SRS không sửa hay suy đoán lịch từ trạng thái đã thuộc/chưa thuộc cũ.
+
+Lịch dùng [TS-FSRS](https://github.com/open-spaced-repetition/ts-fsrs), phiên bản
+`5.4.2`, mục tiêu ghi nhớ 90%, không dùng fuzz ngẫu nhiên. Các bước học mặc định
+là 1 phút và 10 phút, bước học lại 10 phút; thời gian thực tế phụ thuộc mức đánh giá
+và lịch sử ôn. Hàng đợi cập nhật mỗi 15 giây và khi trở lại cửa sổ.
+**Đã ôn hôm nay** đếm số từ khác nhau có lần đánh giá gần nhất trong ngày theo
+giờ địa phương, không phải tổng số lượt bấm. Bộ lọc nhóm áp dụng cho cả ba bộ đếm.
+
+Không đăng nhập: lịch lưu trong cache thiết bị. Đăng nhập: lịch tách riêng theo
+tài khoản, không tự nhập lịch khách vào tài khoản. Đánh giá được giữ trong hàng
+đợi cục bộ trước khi gửi, thử lại khi tải trang, có mạng trở lại hoặc bấm nút đồng bộ.
+API `/api/srs` dùng cookie HttpOnly, kiểm tra CSRF và xác thực người dùng như tiến độ;
+người học không cần quyền editor. Server tính lại FSRS, không nhận lịch kết quả
+tự khai báo hoặc cho phép chọn chủ sở hữu khác. RLS giới hạn mỗi người đọc/ghi
+lịch của chính mình. Cache lịch không chứa mật khẩu hay token.
+
+Khi hai thiết bị đánh giá cùng một từ, bản có `reviewed_at` mới hơn được giữ lại;
+gửi lại bản cũ hoặc đúng cùng timestamp không ghi đè lịch đã lưu. Đây là hợp nhất
+trạng thái gần nhất, không kết hợp hai chuỗi lịch sử ôn đồng thời. Chưa có bảng
+lịch sử từng lượt đánh giá hoặc cá nhân hóa tham số FSRS từ toàn bộ lịch sử.
+Giữ đồng hồ thiết bị đúng; server từ chối đánh giá ở tương lai quá 5 phút.
+Xóa từ hoặc tài khoản sẽ xóa lịch liên quan bằng khóa ngoại.
+
 ## Kiểm tra
 
 `npm test` kiểm tra cấu hình môi trường, bài học, chấm điểm, cache, gửi lại,
@@ -379,6 +423,13 @@ kiểm tra migration, chặn ghi cho anon/người học, không tự nâng quy�
 editor, rollback bài đọc/import, giữ định danh từ khi cập nhật, chặn trùng
 khác chữ hoa/thường, bảo vệ nhóm còn từ và tính idempotent của backfill.
 Không gửi bất kỳ lệnh ghi nào đến Supabase thật trong các kiểm thử này.
+Kiểm thử SRS dùng TS-FSRS thật: tính lịch/preview, chuyển bước học/học lại,
+lọc từ đến hạn, cache/reload, mất mạng, tách tài khoản và chống phản hồi cũ.
+Kiểm thử PostgreSQL xác nhận RLS, RPC, gửi lại, ưu tiên timestamp mới hơn,
+rollback toàn batch, chạy lại migration và khóa ngoại, không sửa tiến độ đã thuộc.
+Playwright đã kiểm tra SRS ở 1280, 390 và 320 px, chế độ sáng/tối: bốn mức đánh giá,
+IPA, phân trang/lọc nhóm, đến hạn theo đồng hồ, reload lịch khách, cookie tài khoản
+và gửi lại đánh giá sau lỗi mạng, với API Supabase giả lập.
 Kiểm thử API xác nhận `ADMIN_EMAIL`, email đã xác nhận, token sai/giả mạo,
 thiếu grant, dữ liệu không hợp lệ, cache riêng tư và việc SDK thực sự chuyển
 JWT riêng của từng request đến Auth/database. Browser không được gửi email
