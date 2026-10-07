@@ -53,7 +53,9 @@ function VocabularyDeck({ group, known, onMark, canEdit, editBusy, onManage }) {
   }
 
   return <>
-    <div className="deck-meta"><span>{group.n}</span><span>{completed} / {group.w.length} đã thuộc</span></div>
+    <div className="vocabulary-progress"><div className="deck-meta"><span>Tiến độ nhóm</span><span>{completed} / {group.w.length} đã thuộc</span></div>
+      <progress value={completed} max={Math.max(1, group.w.length)} aria-label={`Tiến độ nhóm ${group.n}`}>{completed} / {group.w.length}</progress>
+    </div>
     {card ? <button type="button" className="flashcard" onClick={() => setFlipped(!flipped)} aria-label={`Lật thẻ: ${card[0]}. ${flipped ? card[1] + ". " + card[2] + ". " : ""}${card[3] || ""}`} aria-pressed={flipped} title="Lật thẻ">
       {flipped ? <><span className="flashcard-meaning">{card[1]}</span><span className="flashcard-example">{card[2]}</span></> : <span className="flashcard-word">{card[0]}</span>}
       {card[3] && <span className="flashcard-ipa" lang="en-GB">{card[3]}</span>}
@@ -262,11 +264,16 @@ export default function StudyApp({ config }) {
       {practicing ? <TypingPractice key={`${scope}:${contentVersion}`} data={data} onAnswer={(word, mode, answer) => sync.current?.submitPracticeAnswer(word, mode, answer)} onRefresh={() => sync.current?.refreshPractice()} /> :
       reviewing ? <SrsReview key={`${scope}:${contentVersion}`} data={data} now={reviewNow} onReview={(word, rating) => sync.current?.reviewWord(word, rating)} onRefresh={() => sync.current?.refreshSrs()} /> :
       managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
-        <div className="vocabulary-toolbar"><button type="button" onClick={() => manageCards("edit")} disabled={data.adminBusy}><Plus />Thêm thẻ</button>
-          <button type="button" onClick={() => manageCards("import")} disabled={data.adminBusy}><Upload />Import thẻ</button></div>
-        {group ? <><nav className="group-tabs" aria-label="Nhóm từ vựng">{data.content.groups.map(item => <button type="button" key={item.id} className={group.id === item.id ? "active" : ""} aria-pressed={group.id === item.id} onClick={() => setGroupId(item.id)}>{item.n}</button>)}</nav>
-          <VocabularyDeck key={`${group.id}:${scope}:${contentVersion}`} group={group} known={known} onMark={(word, value) => sync.current?.mark(word, value)} canEdit={data.canEdit && !!data.catalog} editBusy={data.adminBusy || data.contentLoading} onManage={manageCards} />
-        </> : <p className="muted">Chưa có từ vựng.</p>}
+        <div className="vocabulary-toolbar">
+          <label className="vocabulary-group" htmlFor="vocabulary-group"><span>Nhóm từ vựng</span>
+            <select id="vocabulary-group" value={group?.id || ""} title={group?.n || "Nhóm từ vựng"} disabled={data.contentLoading || !group} onChange={event => setGroupId(event.target.value)}>
+              {data.content.groups.length ? data.content.groups.map(item => <option key={item.id} value={item.id}>{`${item.n} (${item.w.length} từ)`}</option>) : <option value="">Chưa có nhóm</option>}
+            </select>
+          </label>
+          <div className="vocabulary-tools"><button type="button" title="Thêm thẻ vào nhóm đang chọn" onClick={() => manageCards("edit")} disabled={data.adminBusy}><Plus />Thêm thẻ</button>
+            <button type="button" title="Import thẻ vào nhóm đang chọn" onClick={() => manageCards("import")} disabled={data.adminBusy}><Upload />Import thẻ</button></div>
+        </div>
+        {group ? <VocabularyDeck key={`${group.id}:${scope}:${contentVersion}`} group={group} known={known} onMark={(word, value) => sync.current?.mark(word, value)} canEdit={data.canEdit && !!data.catalog} editBusy={data.adminBusy || data.contentLoading} onManage={manageCards} /> : <p className="muted">Chưa có từ vựng.</p>}
       </>}
     </section>
     {!managing && <details className="history"><summary><ListChecks aria-hidden="true" /><span>Lịch sử bài đọc</span><ChevronDown className="disclosure-icon" aria-hidden="true" /></summary>
