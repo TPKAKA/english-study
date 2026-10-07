@@ -31,7 +31,8 @@ bài học, tiến độ từ vựng và lịch sử bài đọc. Project: `qhup
    Với project hoàn toàn mới, chạy lần lượt `supabase/schema.sql`,
    `supabase/migrations/20261006_content_crud.sql`,
    `supabase/migrations/20261006_vocabulary_import.sql`,
-   `supabase/migrations/20261007_spaced_repetition.sql`, rồi `supabase/seed.sql`.
+   `supabase/migrations/20261007_spaced_repetition.sql`,
+   `supabase/migrations/20261007_typing_practice.sql`, rồi `supabase/seed.sql`.
    Seed nạp 6 nhóm, 42 từ, 2 bài đọc, 8 câu hỏi, không ghi đè bản ghi đã có.
    Nếu chạy lại `schema.sql`, phải chạy lại migration sau đó để khôi phục
    quyền ghi cho editor.
@@ -413,6 +414,44 @@ lịch sử từng lượt đánh giá hoặc cá nhân hóa tham số FSRS từ
 Giữ đồng hồ thiết bị đúng; server từ chối đánh giá ở tương lai quá 5 phút.
 Xóa từ hoặc tài khoản sẽ xóa lịch liên quan bằng khóa ngoại.
 
+## Luyện gõ đáp án
+
+Chạy một lần [20261007_typing_practice.sql](../supabase/migrations/20261007_typing_practice.sql)
+trong Supabase SQL Editor, rồi deploy bản mới để đồng bộ danh sách từ sai.
+Migration tạo `vocabulary_practice` và RPC `save_vocabulary_practice`, chạy lại
+không xóa dữ liệu. Không cần biến môi trường hoặc dịch vụ bên ngoài mới.
+Agent chưa chạy SQL trên Supabase thật; kiểm thử dùng database trong bộ nhớ.
+Chưa chạy migration hoặc mất mạng vẫn luyện và lưu kết quả trên thiết bị.
+
+Mở **Luyện gõ**, chọn kiểu luyện, nhóm và bấm **Bắt đầu luyện**. **Xem nghĩa**
+hiển thị nghĩa tiếng Việt; **Nghe và viết** dùng phát âm `en-GB` của thiết bị,
+không hiện chữ/IPA trước khi kiểm tra. **Điền từ** che tất cả lần xuất hiện
+của đúng từ/cụm từ trong câu ví dụ. Chỉ dùng câu có khớp nguyên từ, không đoán
+biến thể như `resign/resigned` hoặc `expense/expenses`; bộ mẫu có 37/42 câu phù hợp.
+Từ thiếu ví dụ hoặc không khớp vẫn dùng được ở hai chế độ còn lại.
+
+**Kiểm tra** so khớp chính xác với từ trong thẻ, bỏ qua chữ hoa/thường,
+khoảng trắng thừa và dạng dấu nháy/gạch nối Unicode tương đương. Không chấp nhận
+lỗi chính tả gần giống, từ thiếu/thừa hoặc tự chọn từ đồng nghĩa. Không bỏ dấu
+câu: `invoice.` khác `invoice`. Có thể dùng Enter để kiểm tra và sang câu tiếp.
+Sau khi chấm hiện đáp án, IPA, nghĩa và ví dụ; âm thanh phụ thuộc trình duyệt/hệ điều hành.
+
+Trả lời sai hoặc **Xem đáp án** giữ từ trong **Từ cần luyện lại**.
+**Luyện lại từ sai** hoặc nút luyện ở từng dòng bắt đầu lượt mới; trả lời đúng
+ở bất kỳ chế độ nào sẽ bỏ từ khỏi danh sách sai. Bộ lọc chế độ/nhóm áp dụng
+cho cả số lượng và danh sách. Thống kê đúng/sai là của lượt đang luyện;
+reload kết thúc lượt nhưng không xóa danh sách từ sai. Chưa có lịch sử mọi lượt.
+Luyện gõ không tự thay đổi SRS hoặc trạng thái đã thuộc/chưa thuộc.
+
+Khách và từng tài khoản có cache riêng, không tự chuyển kết quả khách khi đăng nhập.
+API `/api/practice` dùng cookie HttpOnly, CSRF và kiểm tra tài khoản, không cần quyền editor.
+Server chấm lại đáp án, không tin cờ đúng/sai hay chủ sở hữu do frontend gửi.
+RLS chỉ cho đọc/ghi dữ liệu của chính người dùng. Các kết quả chưa gửi giữ trong
+hàng đợi thiết bị và thử lại khi reload, có mạng trở lại hoặc bấm đồng bộ.
+Giữ kết quả đúng với `needs_retry=false` để bản sai cũ trên thiết bị khác
+không làm từ đó xuất hiện lại. Khi có xung đột, timestamp mới hơn được giữ,
+không ghép lịch sử; cần đồng hồ thiết bị đúng. Xóa từ/tài khoản xóa dữ liệu liên quan.
+
 ## Kiểm tra
 
 `npm test` kiểm tra cấu hình môi trường, bài học, chấm điểm, cache, gửi lại,
@@ -430,6 +469,15 @@ rollback toàn batch, chạy lại migration và khóa ngoại, không sửa ti�
 Playwright đã kiểm tra SRS ở 1280, 390 và 320 px, chế độ sáng/tối: bốn mức đánh giá,
 IPA, phân trang/lọc nhóm, đến hạn theo đồng hồ, reload lịch khách, cookie tài khoản
 và gửi lại đánh giá sau lỗi mạng, với API Supabase giả lập.
+Kiểm thử luyện gõ xác nhận chuẩn hóa/chấm chính xác, câu điền từ nguyên vẹn,
+không đoán biến thể, lưu/reload từ sai, đúng sau sai, tài khoản tách biệt,
+mất mạng, gửi lại và kết quả mới hơn. SQL kiểm tra RLS, RPC, rollback,
+khóa ngoại và chạy lại migration, không ghi Supabase thật.
+Playwright đã kiểm tra luyện gõ ở 1280, 390 và 320 px, chế độ sáng/tối:
+ba kiểu luyện, không lộ đáp án trước khi chấm, Enter, xem đáp án, luyện lại,
+reload, phân trang từ sai, tách tài khoản và gửi lại kết quả sau lỗi mạng.
+Âm thanh dùng speech synthesis giả lập để kiểm tra từ/giọng/tốc độ; cần thử
+nghe thực tế trên thiết bị. Browser không đọc cookie hay gọi Supabase trực tiếp.
 Kiểm thử API xác nhận `ADMIN_EMAIL`, email đã xác nhận, token sai/giả mạo,
 thiếu grant, dữ liệu không hợp lệ, cache riêng tư và việc SDK thực sự chuyển
 JWT riêng của từng request đến Auth/database. Browser không được gửi email

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, CheckCheck, ChevronDown, Cloud, CloudOff, KeyRound, ListChecks, LogIn, LogOut, Mail, Pencil, Plus, RefreshCw, RotateCcw, Settings2, Shuffle, Trash2, Upload, UserRound, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, CheckCheck, ChevronDown, Cloud, CloudOff, Keyboard, KeyRound, ListChecks, LogIn, LogOut, Mail, Pencil, Plus, RefreshCw, RotateCcw, Settings2, Shuffle, Trash2, Upload, UserRound, X } from "lucide-react";
 import { STUDY_CONTENT } from "../../data/study-content.js";
 import { createStudySync } from "../../lib/study/study-sync.js";
 import { getStudyApiClient } from "../../lib/api/api-client.js";
@@ -11,6 +11,7 @@ import ContentManager from "../admin/content-manager.js";
 import DefaultPasswordSetup from "../auth/default-password-setup.js";
 import PronunciationButton from "./pronunciation-button.js";
 import SrsReview from "./srs-review.js";
+import TypingPractice from "./typing-practice.js";
 import { selectSrsQueue } from "../../lib/study/srs.js";
 
 function IconButton({ label, children, ...props }) {
@@ -168,7 +169,8 @@ export default function StudyApp({ config }) {
   const reading = data.content.readings.find(item => item.id === tab);
   const managing = tab === "manage";
   const reviewing = tab === "review";
-  const activeTab = managing ? "manage" : reviewing ? "review" : reading ? tab : "vocabulary";
+  const practicing = tab === "practice";
+  const activeTab = managing ? "manage" : reviewing ? "review" : practicing ? "practice" : reading ? tab : "vocabulary";
   const reviewCount = useMemo(() => selectSrsQueue(data.content, data.srs || {}, reviewNow).length, [data.content, data.srs, reviewNow]);
   const scope = data.user?.id || "guest";
   const contentVersion = data.contentRevision;
@@ -251,12 +253,14 @@ export default function StudyApp({ config }) {
     <nav className="study-tabs" aria-label="Phần học">
       <button type="button" className={activeTab === "vocabulary" ? "active" : ""} aria-pressed={activeTab === "vocabulary"} onClick={() => setTab("vocabulary")}>Từ vựng</button>
       <button type="button" className={reviewing ? "active" : ""} aria-pressed={reviewing} onClick={() => setTab("review")}><CalendarDays />Ôn tập ({reviewCount})</button>
+      <button type="button" className={practicing ? "active" : ""} aria-pressed={practicing} onClick={() => setTab("practice")}><Keyboard />Luyện gõ</button>
       {data.content.readings.map(item => <button type="button" key={item.id} className={activeTab === item.id ? "active" : ""} aria-pressed={activeTab === item.id} onClick={() => setTab(item.id)}>{item.t}</button>)}
       <button type="button" className={managing ? "active" : ""} aria-pressed={managing} onClick={() => { setManageIntent(null); setTab("manage"); }}><Settings2 />Quản lý thẻ</button>
     </nav>
     {data.contentStatus && <p className="content-status muted" role="status">{data.contentStatus}</p>}
-    <section aria-label={managing ? "Quản lý nội dung" : reviewing ? "Ôn tập ngắt quãng" : reading ? reading.t : "Từ vựng"}>
-      {reviewing ? <SrsReview key={`${scope}:${contentVersion}`} data={data} now={reviewNow} onReview={(word, rating) => sync.current?.reviewWord(word, rating)} onRefresh={() => sync.current?.refreshSrs()} /> :
+    <section aria-label={managing ? "Quản lý nội dung" : reviewing ? "Ôn tập ngắt quãng" : practicing ? "Luyện gõ đáp án" : reading ? reading.t : "Từ vựng"}>
+      {practicing ? <TypingPractice key={`${scope}:${contentVersion}`} data={data} onAnswer={(word, mode, answer) => sync.current?.submitPracticeAnswer(word, mode, answer)} onRefresh={() => sync.current?.refreshPractice()} /> :
+      reviewing ? <SrsReview key={`${scope}:${contentVersion}`} data={data} now={reviewNow} onReview={(word, rating) => sync.current?.reviewWord(word, rating)} onRefresh={() => sync.current?.refreshSrs()} /> :
       managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
         <div className="vocabulary-toolbar"><button type="button" onClick={() => manageCards("edit")} disabled={data.adminBusy}><Plus />Thêm thẻ</button>
           <button type="button" onClick={() => manageCards("import")} disabled={data.adminBusy}><Upload />Import thẻ</button></div>

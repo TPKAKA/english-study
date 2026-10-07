@@ -6,6 +6,7 @@ import { createAuthHandlers } from "../src/lib/auth/auth-server.js";
 import { sessionNames, SESSION_MAX_AGE, withCookieSession, sessionJson, readJson, requestOrigin } from "../src/lib/auth/session-server.js";
 import { createProgressHandlers } from "../src/lib/study/progress-server.js";
 import { createSrsHandlers } from "../src/lib/study/srs-server.js";
+import { createPracticeHandlers } from "../src/lib/study/practice-server.js";
 import { reviewSrsCard } from "../src/lib/study/srs.js";
 import { createAdminHandlers } from "../src/lib/admin/admin-server.js";
 import { createIpaHandlers } from "../src/lib/admin/ipa-server.js";
@@ -121,6 +122,60 @@ test("SRS reads all paginated schedules and the browser batches writes with cook
   const writes = calls.filter(call => call.init.method === "POST");
   assert.deepEqual(writes.map(call => JSON.parse(call.init.body).rows.length), [500, 3]);
   assert.ok(writes.every(call => call.path === "/api/srs" && call.init.credentials === "same-origin" && call.init.headers["X-CSRF-Token"] && !call.init.headers.Authorization));
+});
+
+test("typing practice requires cookie/CSRF/owner checks and recomputes correctness without editor privileges", async () => {
+  const app = harness(), api = createPracticeHandlers(app.dependencies);
+  const row = { word: "agenda", mode: "meaning", last_answer: "wrong", needs_retry: false, answered_at: new Date().toISOString(), user_id: "other" };
+  const post = (rows = [row], owner = testUser.id, headers) => api.POST(app.request("/api/practice", { owner, rows }, headers));
+  assert.equal((await post()).status, 401); await app.login(); app.backend.tables.content_editors = [];
+  for (const headers of [{ Origin: "https://evil.example.com" }, { "X-CSRF-Token": "" }]) assert.equal((await post([row], testUser.id, headers)).status, 403);
+  assert.equal((await post([row], "other-user")).status, 409);
+  assert.equal((await post()).status, 200);
+  assert.equal(app.backend.tables.vocabulary_practice[0].needs_retry, true);
+  assert.equal(app.backend.tables.vocabulary_practice[0].user_id, testUser.id);
+  const newer = { ...row, mode: "cloze", last_answer: " AGENDA ", needs_retry: true, answered_at: new Date(Date.parse(row.answered_at) + 1).toISOString() };
+  assert.equal((await post([newer])).status, 200); assert.equal(app.backend.tables.vocabulary_practice[0].needs_retry, false);
+  const get = owner => api.GET(app.request("/api/practice?owner=" + owner));
+  assert.equal((await get("other-user")).status, 409);
+  const response = await get(testUser.id); assert.equal(response.headers.get("cache-control"), "private, no-store"); assert.equal(response.headers.get("vary"), "Cookie");
+  const rows = (await response.json()).rows; assert.equal(rows[0].needs_retry, false); assert.equal(rows[0].user_id, undefined);
+});
+
+test("typing practice validates entire batches and keeps upstream errors private", async () => {
+  const app = harness(), api = createPracticeHandlers(app.dependencies); await app.login();
+  const row = { word: "agenda", mode: "meaning", last_answer: "agenda", needs_retry: false, answered_at: new Date().toISOString() };
+  const post = rows => api.POST(app.request("/api/practice", { owner: testUser.id, rows }));
+  for (const rows of [[], Array(501).fill(row), [row, row], [row, { ...row, word: "missing" }], [{ ...row, mode: "bad" }], [{ ...row, last_answer: "a".repeat(201) }], [{ ...row, last_answer: {} }], [{ ...row, needs_retry: "true" }], [{ ...row, answered_at: "bad" }], [{ ...row, answered_at: "1999-01-01T00:00:00.000Z" }], [{ ...row, answered_at: new Date(Date.now() + 3600000).toISOString() }]]) {
+    assert.equal((await post(rows)).status, 400); assert.equal(app.backend.tables.vocabulary_practice.length, 0);
+  }
+  app.backend.practiceUnavailable = true;
+  for (const response of [await post([row]), await api.GET(app.request("/api/practice?owner=" + testUser.id))]) {
+    assert.equal(response.status, 503); const text = JSON.stringify(await response.json()); assert.match(text, /giữ trên thiết bị/); assert.ok(!text.includes("private"));
+  }
+  assert.equal((await app.progress.GET(app.request("/api/progress?owner=" + testUser.id))).status, 200);
+});
+
+test("an offline cloze answer remains valid when its example changes before syncing", async () => {
+  const app = harness(), api = createPracticeHandlers(app.dependencies); await app.login();
+  app.backend.tables.vocabulary_words.find(row => row.word === "agenda").example = "An edited sentence without the target.";
+  const body = { owner: testUser.id, rows: [{ word: "agenda", mode: "cloze", last_answer: "Agenda", needs_retry: false, answered_at: new Date().toISOString() }] };
+  assert.equal((await api.POST(app.request("/api/practice", body))).status, 200);
+  assert.equal(app.backend.tables.vocabulary_practice[0].needs_retry, false);
+});
+
+test("typing practice reads more than 500 results and the browser batches cookie-protected writes", async () => {
+  const app = harness(), api = createPracticeHandlers(app.dependencies); await app.login();
+  app.backend.tables.vocabulary_practice = Array.from({ length: 503 }, (_, i) => ({ user_id: testUser.id, word: `word-${i}`, mode: "meaning", needs_retry: true, last_answer: "wrong", answered_at: new Date().toISOString() }));
+  assert.equal((await (await api.GET(app.request("/api/practice?owner=" + testUser.id))).json()).rows.length, 503);
+  assert.deepEqual(app.backend.calls.filter(call => call.url.pathname.endsWith("/vocabulary_practice")).map(call => call.url.searchParams.get("offset") || "0"), ["0", "500"]);
+  const calls = [];
+  const client = createStudyApiClient({ url: testEnv.url_db }, { location: { hash: "" } }, async (path, init) => {
+    calls.push({ path, init }); return Response.json(path === "/api/auth/session" ? { ok: true, user: testUser, csrfToken: "a".repeat(64) } : { ok: true, rows: app.backend.tables.vocabulary_practice });
+  });
+  assert.equal((await client.data.loadPractice(testUser.id)).length, 503); await client.data.savePractice(testUser.id, app.backend.tables.vocabulary_practice);
+  const writes = calls.filter(call => call.init.method === "POST"); assert.deepEqual(writes.map(call => JSON.parse(call.init.body).rows.length), [500, 3]);
+  assert.ok(writes.every(call => call.path === "/api/practice" && call.init.credentials === "same-origin" && call.init.headers["X-CSRF-Token"] && !call.init.headers.Authorization));
 });
 
 test("server login issues 30-day HttpOnly host-only cookies; response JSON contains no credentials", async () => {

@@ -102,6 +102,10 @@ export function createStudyApiClient(config, browser = window, fetchRequest = gl
       async loadSrs(owner) { return (await request("/api/srs?owner=" + encodeURIComponent(owner))).rows; },
       async saveSrs(owner, rows) {
         for (let offset = 0; offset < rows.length; offset += 500) await request("/api/srs", { owner, rows: rows.slice(offset, offset + 500) });
+      },
+      async loadPractice(owner) { return (await request("/api/practice?owner=" + encodeURIComponent(owner))).rows; },
+      async savePractice(owner, rows) {
+        for (let offset = 0; offset < rows.length; offset += 500) await request("/api/practice", { owner, rows: rows.slice(offset, offset + 500) });
       }
     },
     auth: {

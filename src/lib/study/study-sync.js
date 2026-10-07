@@ -6,12 +6,15 @@ import { requestAdmin } from "../admin/admin-browser.js";
 import { SESSION_COOKIE_ERROR } from "../api/api-client.js";
 import { createSrsData } from "./srs-data.js";
 import { normalizeSrsRecords, reviewSrsCard } from "./srs.js";
+import { createPracticeData } from "./practice-data.js";
+import { gradePracticeAnswer, normalizePracticeRecords } from "./typing-practice.js";
 
 export function createStudySync({ config, initialContent, createClient, storage, onChange, adminRequest = requestAdmin, schedule = callback => setTimeout(callback, 0), makeId = () => crypto.randomUUID(), now = () => new Date().toISOString() }) {
   const storagePrefix = "english-study:" + (config.url || "local") + ":";
   let client = null, user = null, epoch = 0, loading = false, saving = false, disposed = false;
-  let repository, srsRepository;
+  let repository, srsRepository, practiceRepository;
   let srsLoading = false, srsSaving = false, srsStatus = "Lịch ôn trên thiết bị";
+  let practiceLoading = false, practiceSaving = false, practiceStatus = "Luyện gõ trên thiết bị";
   let subscription, content = initialContent, contentStatus = "", authMessage = "", authBusy = false;
   let storageFailed = false, status = "Tiến độ trên thiết bị";
   let catalog = null, contentRevision = 0, contentLoading = false, contentRequest = 0;
@@ -23,10 +26,11 @@ export function createStudySync({ config, initialContent, createClient, storage,
     try {
       const value = JSON.parse(storage.getItem(storagePrefix + owner));
       if (value && value.words && value.pendingWords && Array.isArray(value.attempts) && Array.isArray(value.pendingAttempts)) return {
-        ...value, srs: normalizeSrsRecords(Object.values(value.srs || {})), pendingSrs: normalizeSrsRecords(Object.values(value.pendingSrs || {}))
+        ...value, srs: normalizeSrsRecords(Object.values(value.srs || {})), pendingSrs: normalizeSrsRecords(Object.values(value.pendingSrs || {})),
+        practice: normalizePracticeRecords(Object.values(value.practice || {})), pendingPractice: normalizePracticeRecords(Object.values(value.pendingPractice || {}))
       };
     } catch {}
-    return { words: {}, pendingWords: {}, attempts: [], pendingAttempts: [], srs: {}, pendingSrs: {} };
+    return { words: {}, pendingWords: {}, attempts: [], pendingAttempts: [], srs: {}, pendingSrs: {}, practice: {}, pendingPractice: {} };
   }
 
   function persist() {
@@ -44,6 +48,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
       canEdit, editorStatus, adminBusy, user, status, authMessage, authBusy, storageFailed,
       connected: !!client, busy: loading || saving,
       srs: state.srs, srsLoading, srsSaving, srsStatus,
+      practice: state.practice, practiceLoading, practiceSaving, practiceStatus,
       known: Object.keys(state.words).filter(word => state.words[word].is_known && validWords.has(word)),
       attempts: state.attempts.slice().sort((a, b) => b.completed_at.localeCompare(a.completed_at)).slice(0, 10)
     };
@@ -98,6 +103,44 @@ export function createStudySync({ config, initialContent, createClient, storage,
       if (current(token)) srsStatus = "Chưa đồng bộ được lịch ôn. Lịch vẫn được giữ trên thiết bị.";
     } finally { if (current(token)) { srsLoading = false; emit(); } }
     if (success && current(token)) await flushSrs();
+  }
+
+  async function flushPractice() {
+    if (!client || !user || practiceLoading || practiceSaving || disposed || !Object.keys(state.pendingPractice).length) return;
+    const token = epoch, owner = user.id, currentState = state;
+    practiceSaving = true; practiceStatus = "Đang đồng bộ luyện gõ…"; emit();
+    try {
+      while (current(token)) {
+        const pending = Object.entries(currentState.pendingPractice);
+        if (!pending.length) break;
+        await practiceRepository.savePractice(owner, pending.map(([, row]) => row));
+        if (!current(token)) return;
+        for (const [word, row] of pending) if (currentState.pendingPractice[word] === row) delete currentState.pendingPractice[word];
+        persist();
+      }
+      if (current(token)) practiceStatus = "Luyện gõ đã đồng bộ";
+    } catch {
+      if (current(token)) practiceStatus = "Chưa đồng bộ được luyện gõ. Kết quả vẫn được giữ trên thiết bị.";
+    } finally { if (current(token)) { practiceSaving = false; emit(); } }
+  }
+
+  async function refreshPractice() {
+    if (!client || !user || practiceLoading || practiceSaving || disposed) return;
+    const token = epoch, owner = user.id;
+    practiceLoading = true; practiceStatus = "Đang tải luyện gõ…"; emit();
+    let success = false;
+    try {
+      const records = normalizePracticeRecords(await practiceRepository.loadPractice(owner));
+      if (!current(token)) return;
+      for (const [word, row] of Object.entries(state.pendingPractice)) {
+        if (Object.hasOwn(records, word) && records[word].answered_at >= row.answered_at) delete state.pendingPractice[word];
+      }
+      state.practice = { ...records, ...state.pendingPractice };
+      persist(); success = true; practiceStatus = "Luyện gõ đã đồng bộ";
+    } catch {
+      if (current(token)) practiceStatus = "Chưa đồng bộ được luyện gõ. Kết quả vẫn được giữ trên thiết bị.";
+    } finally { if (current(token)) { practiceLoading = false; emit(); } }
+    if (success && current(token)) await flushPractice();
   }
 
   async function flush() {
@@ -169,13 +212,15 @@ export function createStudySync({ config, initialContent, createClient, storage,
     saving = false;
     srsLoading = false; srsSaving = false;
     srsStatus = user ? "Đang tải lịch ôn…" : "Lịch ôn trên thiết bị";
+    practiceLoading = false; practiceSaving = false;
+    practiceStatus = user ? "Đang tải luyện gõ…" : "Luyện gõ trên thiết bị";
     adminBusy = false;
     canEdit = false;
     editorStatus = user ? "Đang kiểm tra quyền quản lý…" : "";
     state = load(user ? user.id : "guest");
     authMessage = "";
     setStatus(user ? "Đang tải tiến độ…" : "Tiến độ trên thiết bị");
-    if (user) { void refresh(); void refreshSrs(); void loadEditorPermission(); }
+    if (user) { void refresh(); void refreshSrs(); void refreshPractice(); void loadEditorPermission(); }
   }
 
   async function loadEditorPermission() {
@@ -209,6 +254,8 @@ export function createStudySync({ config, initialContent, createClient, storage,
       validWords = new Set(content.groups.flatMap(group => group.w.map(word => word[0])));
       state.srs = Object.fromEntries(Object.entries(state.srs).filter(([word]) => validWords.has(word)));
       state.pendingSrs = Object.fromEntries(Object.entries(state.pendingSrs).filter(([word]) => validWords.has(word)));
+      state.practice = Object.fromEntries(Object.entries(state.practice).filter(([word]) => validWords.has(word)));
+      state.pendingPractice = Object.fromEntries(Object.entries(state.pendingPractice).filter(([word]) => validWords.has(word)));
       persist();
       contentStatus = "";
       return true;
@@ -230,6 +277,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
       client = createClient(checked);
       repository = client.data || createStudyData(client);
       srsRepository = client.data?.loadSrs ? client.data : createSrsData(client);
+      practiceRepository = client.data?.loadPractice ? client.data : createPracticeData(client);
       setStatus("Đang kết nối…");
       const result = client.auth.onAuthStateChange((event, session) => {
         // Finish the auth notification before starting dependent requests.
@@ -332,7 +380,19 @@ export function createStudySync({ config, initialContent, createClient, storage,
   }
 
   return {
-    start, async refresh() { await refresh(); await refreshSrs(); }, refreshSrs, signIn, signOut, setPassword, snapshot, reloadContent: loadContent,
+    start, async refresh() { await refresh(); await refreshSrs(); await refreshPractice(); }, refreshSrs, refreshPractice, signIn, signOut, setPassword, snapshot, reloadContent: loadContent,
+    submitPracticeAnswer(word, mode, answer) {
+      if (disposed || practiceLoading || contentLoading || !validWords.has(word)) return null;
+      const card = content.groups.flatMap(group => group.w).find(card => card[0] === word);
+      const grade = gradePracticeAnswer(card, mode, answer);
+      if (!grade) return null;
+      const previous = Object.hasOwn(state.practice, word) ? state.practice[word] : null;
+      const answered_at = new Date(Math.max(Date.parse(now()), previous ? Date.parse(previous.answered_at) + 1 : 0)).toISOString();
+      const row = { word, mode, last_answer: answer.trim(), needs_retry: !grade.correct, answered_at };
+      state.practice = { ...state.practice, [word]: row };
+      if (user) state.pendingPractice = { ...state.pendingPractice, [word]: row };
+      persist(); emit(); void flushPractice(); return grade;
+    },
     reviewWord(word, rating) {
       if (disposed || srsLoading || !validWords.has(word)) return false;
       try {

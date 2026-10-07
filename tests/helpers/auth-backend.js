@@ -10,9 +10,9 @@ export function authBackend() {
     vocabulary_words: STUDY_CONTENT.groups.flatMap(g => g.w.map((w, sort_order) => ({ word: w[0], group_id: g.id, meaning: w[1], example: w[2], ipa: w[3], sort_order }))),
     reading_passages: STUDY_CONTENT.readings.map((r, sort_order) => ({ id: r.id, title: r.t, time_label: r.time, passage: r.p, sort_order })),
     reading_questions: STUDY_CONTENT.readings.flatMap(r => r.q.map((q, sort_order) => ({ reading_id: r.id, sort_order, prompt: q.q, options: q.o, answer_index: q.a, explanation: q.e }))),
-    content_editors: [{ user_id: testUser.id }], vocabulary_progress: [], reading_attempts: [], vocabulary_srs: []
+    content_editors: [{ user_id: testUser.id }], vocabulary_progress: [], reading_attempts: [], vocabulary_srs: [], vocabulary_practice: []
   };
-  const backend = { calls, tables, revoked: false, unavailable: false, srsUnavailable: false, expires: 3600, padding: "" };
+  const backend = { calls, tables, revoked: false, unavailable: false, srsUnavailable: false, practiceUnavailable: false, expires: 3600, padding: "" };
   function issue() {
     const exp = Math.floor(Date.now() / 1000) + backend.expires;
     const access_token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString("base64url"), Buffer.from(JSON.stringify({ sub: testUser.id, exp, role: "authenticated", serial: calls.length })).toString("base64url"), "mock-signature"].join(".");
@@ -52,6 +52,19 @@ export function authBackend() {
         const index = tables.vocabulary_srs.findIndex(old => old.user_id === row.user_id && old.word === row.word);
         if (index < 0) tables.vocabulary_srs.push(row);
         else if (tables.vocabulary_srs[index].reviewed_at < row.reviewed_at) tables.vocabulary_srs[index] = row;
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname.endsWith("/vocabulary_practice") || url.pathname.endsWith("/rpc/save_vocabulary_practice")) {
+      if (backend.practiceUnavailable) return Response.json({ code: "PGRST205", message: "private missing practice migration" }, { status: 404 });
+      if (!issued.has(bearer) || backend.revoked) return Response.json({ code: "42501" }, { status: 403 });
+    }
+    if (url.pathname.endsWith("/rpc/save_vocabulary_practice")) {
+      for (const item of body.p_rows) {
+        const row = { ...item, user_id: testUser.id };
+        const index = tables.vocabulary_practice.findIndex(old => old.user_id === row.user_id && old.word === row.word);
+        if (index < 0) tables.vocabulary_practice.push(row);
+        else if (tables.vocabulary_practice[index].answered_at < row.answered_at) tables.vocabulary_practice[index] = row;
       }
       return new Response(null, { status: 204 });
     }
