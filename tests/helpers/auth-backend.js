@@ -1,9 +1,12 @@
 import { STUDY_CONTENT } from "../../src/data/study-content.js";
+import { MULTILINGUAL_CONTENT } from "../../src/data/korean-content.js";
+import { cardId, cardMeta, DEFAULT_LANGUAGES } from "../../src/lib/study/languages.js";
+import { randomUUID } from "node:crypto";
 
 export const testEnv = { url_db: "https://cookie-test.supabase.co", publishableKey: "sb_publishable_cookie_test_key_long", ADMIN_EMAIL: "learner@example.com" };
 export const testUser = { id: "a4c6e968-cb3a-4ec2-a3e2-865afda18fa1", email: testEnv.ADMIN_EMAIL, email_confirmed_at: "2026-10-06T00:00:00Z", user_metadata: {}, app_metadata: { provider: "email" } };
 
-export function authBackend() {
+export function authBackend({ multilingual = false } = {}) {
   const calls = [], issued = new Set(), refreshes = new Set();
   const tables = {
     vocabulary_groups: STUDY_CONTENT.groups.map((g, sort_order) => ({ id: g.id, title: g.n, sort_order })),
@@ -13,6 +16,12 @@ export function authBackend() {
     content_editors: [{ user_id: testUser.id }], vocabulary_progress: [], reading_attempts: [], vocabulary_srs: [], vocabulary_practice: []
   };
   const backend = { calls, tables, revoked: false, unavailable: false, srsUnavailable: false, practiceUnavailable: false, expires: 3600, padding: "" };
+  if (multilingual) {
+    tables.study_languages = structuredClone(DEFAULT_LANGUAGES);
+    tables.vocabulary_groups = MULTILINGUAL_CONTENT.groups.map((group, sort_order) => ({ id: group.id, title: group.n, language_code: group.language_code || "en", sort_order }));
+    tables.vocabulary_words = MULTILINGUAL_CONTENT.groups.flatMap(group => group.w.map((card, sort_order) => ({ word: card[0], id: cardId(card), group_id: group.id, meaning: card[1], example: card[2], ipa: card[3], reading: cardMeta(card).reading || "", romanization: cardMeta(card).romanization || "", cloze_text: cardMeta(card).cloze_text || "", cloze_answer: cardMeta(card).cloze_answer || "", sort_order })));
+    tables.reading_passages = tables.reading_passages.map(row => ({ ...row, language_code: "en" }));
+  }
   function issue() {
     const exp = Math.floor(Date.now() / 1000) + backend.expires;
     const access_token = [Buffer.from('{"alg":"HS256","typ":"JWT"}').toString("base64url"), Buffer.from(JSON.stringify({ sub: testUser.id, exp, role: "authenticated", serial: calls.length })).toString("base64url"), "mock-signature"].join(".");
@@ -48,8 +57,8 @@ export function authBackend() {
     }
     if (url.pathname.endsWith("/rpc/save_vocabulary_srs")) {
       for (const item of body.p_rows) {
-        const row = { ...item, user_id: testUser.id };
-        const index = tables.vocabulary_srs.findIndex(old => old.user_id === row.user_id && old.word === row.word);
+        const row = { ...item, ...(multilingual ? { card_id: item.word } : {}), user_id: testUser.id };
+        const index = tables.vocabulary_srs.findIndex(old => old.user_id === row.user_id && (old.card_id || old.word) === row.word);
         if (index < 0) tables.vocabulary_srs.push(row);
         else if (tables.vocabulary_srs[index].reviewed_at < row.reviewed_at) tables.vocabulary_srs[index] = row;
       }
@@ -61,15 +70,29 @@ export function authBackend() {
     }
     if (url.pathname.endsWith("/rpc/save_vocabulary_practice")) {
       for (const item of body.p_rows) {
-        const row = { ...item, user_id: testUser.id };
-        const index = tables.vocabulary_practice.findIndex(old => old.user_id === row.user_id && old.word === row.word);
+        const row = { ...item, ...(multilingual ? { card_id: item.word } : {}), user_id: testUser.id };
+        const index = tables.vocabulary_practice.findIndex(old => old.user_id === row.user_id && (old.card_id || old.word) === row.word);
         if (index < 0) tables.vocabulary_practice.push(row);
         else if (tables.vocabulary_practice[index].answered_at < row.answered_at) tables.vocabulary_practice[index] = row;
       }
       return new Response(null, { status: 204 });
     }
+    if (multilingual && url.pathname.endsWith("/rpc/import_vocabulary_words")) {
+      if (!issued.has(bearer) || backend.revoked || !tables.content_editors.some(row => row.user_id === testUser.id)) return Response.json({ code: "42501" }, { status: 403 });
+      let imported = 0;
+      for (const item of body.p_rows) {
+        const existing = tables.vocabulary_words.find(row => row.group_id === item.group_id && row.word.trim().toLowerCase() === item.word.trim().toLowerCase());
+        if (existing && body.p_mode === "skip") continue;
+        if (existing) Object.assign(existing, { ...item, id: existing.id });
+        else tables.vocabulary_words.push({ ...item, id: randomUUID() });
+        imported++;
+      }
+      return Response.json({ imported, skipped: body.p_rows.length - imported });
+    }
     const table = url.pathname.split("/").at(-1);
+    if (table === "study_languages" && !multilingual) return Response.json({ code: "PGRST205" }, { status: 404 });
     if (!Object.hasOwn(tables, table)) throw new Error("Unexpected mock table: " + table);
+    if (!multilingual && (url.searchParams.get("select")?.includes("card_id") || body?.[0]?.card_id || body?.card_id)) return Response.json({ code: "42703" }, { status: 400 });
     const matches = row => [...url.searchParams].every(([key, value]) => !value.startsWith("eq.") || row[key] === value.slice(3));
     if (["PATCH", "DELETE"].includes(init.method)) {
       if (!issued.has(bearer) || backend.revoked) return Response.json({ code: "42501" }, { status: 403 });
@@ -81,7 +104,7 @@ export function authBackend() {
       if (!issued.has(bearer) || backend.revoked) return Response.json({ code: "42501" }, { status: 403 });
       const inputRows = Array.isArray(body) ? body : [body];
       for (const row of inputRows) {
-        const index = tables[table].findIndex(old => table === "vocabulary_progress" ? old.user_id === row.user_id && old.word === row.word : table === "vocabulary_words" ? old.word === row.word : old.id === row.id);
+        const index = tables[table].findIndex(old => table === "vocabulary_progress" ? old.user_id === row.user_id && (old.card_id || old.word) === (row.card_id || row.word) : table === "vocabulary_words" ? (multilingual ? old.id === row.id : old.word === row.word) : table === "study_languages" ? old.code === row.code : old.id === row.id);
         if (index < 0) tables[table].push(row);
         else if (!headers.get("prefer")?.includes("ignore-duplicates")) tables[table][index] = row;
       }
@@ -90,7 +113,7 @@ export function authBackend() {
     let rows = tables[table].filter(matches);
     rows = rows.slice(Number(url.searchParams.get("offset") || 0), Number(url.searchParams.get("offset") || 0) + Number(url.searchParams.get("limit") || 500));
     const columns = url.searchParams.get("select");
-    if (columns && columns !== "*") rows = rows.map(row => Object.fromEntries(columns.split(",").map(key => [key, row[key]])));
+    if (columns && columns !== "*") rows = rows.map(row => Object.fromEntries(columns.split(",").map(key => { const [alias, column = alias] = key.split(":"); return [alias, row[column]]; })));
     return Response.json(rows);
   };
   return backend;

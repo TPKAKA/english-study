@@ -1,4 +1,5 @@
 import { createEmptyCard, fsrs, Rating } from "ts-fsrs";
+import { cardId } from "./languages.js";
 
 export const SRS_RATINGS = Object.freeze([
   { rating: Rating.Again, label: "Quên", tone: "again" },
@@ -50,7 +51,8 @@ export function selectSrsQueue(content, records, at, groupId = "") {
   for (const group of content.groups) {
     if (groupId && group.id !== groupId) continue;
     for (const word of group.w) {
-      const record = Object.hasOwn(records, word[0]) ? records[word[0]] : null;
+      const id = cardId(word);
+      const record = Object.hasOwn(records, id) ? records[id] : null;
       if (!record || Date.parse(record.card.due) <= at) queue.push({ word, groupId: group.id, groupName: group.n, isNew: !record, record });
     }
   }

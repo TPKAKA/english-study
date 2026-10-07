@@ -2,6 +2,7 @@ import { withCookieSession, readJson, sessionJson } from "../auth/session-server
 import { createStudyData } from "./study-data.js";
 import { toStudyContent } from "../content/content-admin.js";
 import { gradeReading } from "./quiz.js";
+import { cardId } from "./languages.js";
 
 const timestamp = value => typeof value === "string" && value.length <= 40 && Number.isFinite(Date.parse(value));
 const uuid = value => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9]{4}-[1-5][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
@@ -22,7 +23,7 @@ export function createProgressHandlers(dependencies = {}) {
         if (!["words", "attempts"].includes(body.type) || !Array.isArray(body.rows) || !body.rows.length || body.rows.length > 500) return sessionJson({ ok: false }, 400);
         const repository = createStudyData(client);
         const catalog = await repository.getCatalog();
-        const words = new Set(catalog.words.map(row => row.word));
+        const words = new Set(catalog.words.map(cardId));
         const readings = toStudyContent(catalog).readings;
         const rows = [], seen = new Set();
         for (const row of body.rows) {

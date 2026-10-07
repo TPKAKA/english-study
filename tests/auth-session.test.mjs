@@ -14,8 +14,8 @@ import { createSupabaseRequestClient } from "../src/lib/supabase/supabase-server
 import { createStudyApiClient } from "../src/lib/api/api-client.js";
 import { authBackend, testEnv, testUser } from "./helpers/auth-backend.js";
 
-function harness({ https = true } = {}) {
-  const backend = authBackend(), jar = new Map(), responses = [], origin = https ? "https://study.example.com" : "http://localhost:3000";
+function harness({ https = true, multilingual = false } = {}) {
+  const backend = authBackend({ multilingual }), jar = new Map(), responses = [], origin = https ? "https://study.example.com" : "http://localhost:3000";
   const dependencies = { env: testEnv, fetchRequest: backend.fetchRequest };
   const auth = createAuthHandlers(dependencies), progress = createProgressHandlers(dependencies);
   const names = sessionNames({ url: testEnv.url_db }, new Request(origin));
@@ -42,6 +42,27 @@ function harness({ https = true } = {}) {
     async login() { await authCall(); return authCall({ action: "password", email: testUser.email, password: "test-password-only" }); }
   };
 }
+
+test("multilingual cookie APIs store stable card IDs and recompute Korean cloze answers", async () => {
+  const app = harness({ multilingual: true }), practice = createPracticeHandlers(app.dependencies), srs = createSrsHandlers(app.dependencies);
+  await app.login(); app.backend.tables.content_editors = [];
+  const owner = testUser.id, answered_at = new Date().toISOString();
+  const row = { word: "ko-school", mode: "cloze", needs_retry: true, last_answer: "학교", answered_at };
+  assert.equal((await practice.POST(app.request("/api/practice", { owner, rows: [row] }))).status, 200);
+  assert.equal(app.backend.tables.vocabulary_practice[0].card_id, "ko-school");
+  assert.equal(app.backend.tables.vocabulary_practice[0].needs_retry, false);
+  const result = await practice.GET(app.request("/api/practice?owner=" + owner));
+  assert.equal((await result.json()).rows[0].word, "ko-school");
+  assert.equal((await srs.POST(app.request("/api/srs", { owner, rows: [{ word: "ko-school", rating: 3, reviewed_at: answered_at, previous_card: null }] }))).status, 200);
+  assert.equal(app.backend.tables.vocabulary_srs[0].card_id, "ko-school");
+  assert.equal((await app.progress.POST(app.request("/api/progress", { owner, type: "words", rows: [{ word: "ko-school", is_known: true, updated_at: answered_at }] }))).status, 200);
+  assert.equal(app.backend.tables.vocabulary_progress[0].card_id, "ko-school");
+  app.backend.tables.vocabulary_words.find(card => card.id === "ko-school").word = "학교 변경";
+  assert.equal((await app.progress.GET(app.request("/api/progress?owner=" + owner))).status, 200);
+  const words = (await (await app.progress.GET(app.request("/api/progress?owner=" + owner))).json()).words;
+  assert.equal(words[0].word, "ko-school");
+  assert.equal((await app.progress.POST(app.request("/api/progress", { owner, type: "words", rows: [{ word: "학교 변경", is_known: true, updated_at: answered_at }] }))).status, 400);
+});
 
 test("IPA lookup requires the existing cookie, CSRF, confirmed admin email and editor grant; it never writes content", async () => {
   const app = harness();
@@ -109,7 +130,7 @@ test("SRS reads all paginated schedules and the browser batches writes with cook
   app.backend.tables.vocabulary_srs = Array.from({ length: 503 }, (_, index) => ({ user_id: testUser.id, word: `word-${index}`, card, rating: 3, reviewed_at }));
   const result = await api.GET(app.request("/api/srs?owner=" + testUser.id));
   assert.equal((await result.json()).rows.length, 503);
-  const reads = app.backend.calls.filter(call => call.url.pathname.endsWith("/vocabulary_srs"));
+  const reads = app.backend.calls.filter(call => call.url.pathname.endsWith("/vocabulary_srs") && !call.url.searchParams.get("select")?.includes("card_id"));
   assert.deepEqual(reads.map(call => call.url.searchParams.get("offset") || "0"), ["0", "500"]);
   const calls = [], browser = { location: { hash: "" } };
   const client = createStudyApiClient({ url: testEnv.url_db }, browser, async (path, init) => {
@@ -168,7 +189,7 @@ test("typing practice reads more than 500 results and the browser batches cookie
   const app = harness(), api = createPracticeHandlers(app.dependencies); await app.login();
   app.backend.tables.vocabulary_practice = Array.from({ length: 503 }, (_, i) => ({ user_id: testUser.id, word: `word-${i}`, mode: "meaning", needs_retry: true, last_answer: "wrong", answered_at: new Date().toISOString() }));
   assert.equal((await (await api.GET(app.request("/api/practice?owner=" + testUser.id))).json()).rows.length, 503);
-  assert.deepEqual(app.backend.calls.filter(call => call.url.pathname.endsWith("/vocabulary_practice")).map(call => call.url.searchParams.get("offset") || "0"), ["0", "500"]);
+  assert.deepEqual(app.backend.calls.filter(call => call.url.pathname.endsWith("/vocabulary_practice") && !call.url.searchParams.get("select")?.includes("card_id")).map(call => call.url.searchParams.get("offset") || "0"), ["0", "500"]);
   const calls = [];
   const client = createStudyApiClient({ url: testEnv.url_db }, { location: { hash: "" } }, async (path, init) => {
     calls.push({ path, init }); return Response.json(path === "/api/auth/session" ? { ok: true, user: testUser, csrfToken: "a".repeat(64) } : { ok: true, rows: app.backend.tables.vocabulary_practice });

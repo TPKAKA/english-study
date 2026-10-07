@@ -1,7 +1,11 @@
-# Cấu hình và vận hành Business English
+# Cấu hình và vận hành Language Study
 
 Sơ đồ thư mục và các lệnh thường dùng: [README](../README.md).
 Các lệnh và đường dẫn bên dưới được tính từ thư mục gốc của project.
+
+Nâng cấp tiếng Anh + tiếng Hàn: xem [Đa ngôn ngữ](multilingual.md).
+Chạy migration đa ngôn ngữ sau các migration hiện có; seed tiếng Anh cũ
+phải chạy trước migration đa ngôn ngữ, không chạy lại sau đó.
 
 Ứng dụng Next.js App Router và React chạy trên Vercel. Supabase lưu nội dung
 bài học, tiến độ từ vựng và lịch sử bài đọc. Project: `qhupozxfvkgttuvdawbk`.

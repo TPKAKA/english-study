@@ -9,7 +9,7 @@ import { applyImportIpa, IPA_BATCH_SIZE, ipaCandidateLabel, missingImportIpa } f
 
 const STATUS = { create: "Thêm mới", update: "Cập nhật", skip: "Bỏ qua" };
 
-export default function VocabularyImporter({ catalog, initialGroup, busy, onSave, onClose, onSuggestIpa }) {
+export default function VocabularyImporter({ catalog, language, initialGroup, busy, onSave, onClose, onSuggestIpa }) {
   const [groupId, setGroupId] = useState(() => catalog.groups.some(group => group.id === initialGroup) ? initialGroup : catalog.groups[0]?.id || "");
   const [source, setSource] = useState("");
   const [fileName, setFileName] = useState("");
@@ -131,8 +131,8 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
         <div className="import-file-tools field-wide">
           <input ref={fileInput} type="file" accept=".xlsx,.csv,.tsv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/tab-separated-values" hidden onChange={event => void readFile(event)} />
           <button type="button" onClick={() => fileInput.current.click()}><Upload />Chọn file</button>
-          <a className="template-link" href="/templates/vocabulary.xlsx" download="vocabulary.xlsx"><Download />Mẫu Excel</a>
-          <a className="template-link" href="/templates/vocabulary.csv" download="vocabulary.csv"><Download />Mẫu CSV</a>
+          <a className="template-link" href={language.code === "en" ? "/templates/vocabulary.xlsx" : `/api/vocabulary-template?language=${encodeURIComponent(language.code)}&mode=${language.pronunciation_mode}&format=xlsx`} download={`vocabulary-${language.code}.xlsx`}><Download />Mẫu Excel</a>
+          <a className="template-link" href={language.code === "en" ? "/templates/vocabulary.csv" : `/api/vocabulary-template?language=${encodeURIComponent(language.code)}&mode=${language.pronunciation_mode}`} download={`vocabulary-${language.code}.csv`}><Download />Mẫu CSV</a>
           {fileName && <span className="muted">{fileName}</span>}
         </div>
         <label className="editor-field field-wide"><span>Dữ liệu</span><textarea rows={6} value={source}
@@ -145,21 +145,21 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
       </fieldset>
       {preview?.prepared && <section className="import-preview" aria-label="Thẻ sẽ import">
         <p className="import-counts" role="status">{preview.counts.create} thêm mới · {preview.counts.update} cập nhật · {preview.counts.skip} bỏ qua</p>
-        <div className="import-ipa-tools">
+        {language.code === "en" && <div className="import-ipa-tools">
           <button type="button" disabled={locked || looking || !missing.some(word => suggestions[word.trim().toLowerCase()]?.status !== "found")} onClick={() => void suggestIpa()}>
             {looking ? <LoaderCircle className="spinning" /> : <Search />}Gợi ý IPA ({missing.length})
           </button>
           {looking && <button type="button" onClick={() => { lookupVersion.current++; setLooking(false); setIpaMessage("Đã dừng tra IPA."); }}><Square />Dừng tra</button>}
           <button type="button" disabled={locked || looking || !selectedCount} onClick={applySuggestions}><Check />Áp dụng {selectedCount} gợi ý</button>
-        </div>
+        </div>}
         <p className="ipa-status muted" role="status">{looking ? `Đang tra IPA: ${progress.done} / ${progress.total}` : ipaMessage}</p>
         <div className="import-table-scroll" tabIndex={0} aria-label="Danh sách thẻ xem trước"><table>
-          <thead><tr><th>Từ / IPA</th><th>Nghĩa</th><th>Trạng thái</th></tr></thead>
+          <thead><tr><th>Từ / {language.pronunciation_mode === "ipa" ? "IPA" : "Cách đọc"}</th><th>Nghĩa</th><th>Trạng thái</th></tr></thead>
           <tbody>{preview.prepared.map(({ row, status }) => {
             const key = row.word.trim().toLowerCase();
             const result = missingKeys.has(key) ? suggestions[key] : null;
             return <tr key={row.word}>
-              <td><strong>{row.word}</strong><span className="ipa-text">{row.ipa}</span>
+              <td><strong lang={language.code}>{row.word}</strong><span className="ipa-text">{row.ipa || row.reading || row.romanization}</span>
                 {result?.candidates?.length > 0 && <label className="editor-field import-ipa-choice"><span>Gợi ý IPA</span>
                   <select aria-label={`Gợi ý IPA: ${row.word}`} disabled={locked || looking} value={Object.hasOwn(choices, key) ? choices[key] : ""} onChange={event => setChoices(previous => ({ ...previous, [key]: event.target.value }))}>
                     <option value="">Không dùng gợi ý</option>{result.candidates.map((candidate, index) => <option key={index} value={index}>{ipaCandidateLabel(candidate)}</option>)}

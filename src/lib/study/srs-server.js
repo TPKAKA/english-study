@@ -2,6 +2,7 @@ import { withCookieSession, readJson, sessionJson } from "../auth/session-server
 import { createSrsData } from "./srs-data.js";
 import { fetchCatalog } from "../content/content-admin.js";
 import { reviewSrsCard } from "./srs.js";
+import { cardId } from "./languages.js";
 
 export function createSrsHandlers(dependencies = {}) {
   const errorResponse = () => sessionJson({ ok: false, error: "Chưa đồng bộ được lịch ôn. Lịch vẫn được giữ trên thiết bị." }, 503);
@@ -20,7 +21,7 @@ export function createSrsHandlers(dependencies = {}) {
         if (body?.owner !== user.id) return sessionJson({ ok: false }, 409);
         if (!Array.isArray(body.rows) || !body.rows.length || body.rows.length > 500) return sessionJson({ ok: false }, 400);
         let words;
-        try { words = new Set((await fetchCatalog(client)).words.map(row => row.word)); }
+        try { words = new Set((await fetchCatalog(client)).words.map(cardId)); }
         catch { return errorResponse(); }
         const rows = [], seen = new Set();
         try {

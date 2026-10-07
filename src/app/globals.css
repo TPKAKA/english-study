@@ -37,7 +37,9 @@ button:disabled { opacity: .5; cursor: default; }
 button.active, .primary-button { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
 svg { width: 19px; height: 19px; flex-shrink: 0; }
 .icon-button { width: 42px; height: 42px; padding: 0; flex-shrink: 0; }
-.page-header { display: flex; gap: 12px; align-items: center; margin-bottom: 18px; }
+.page-header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 18px; }
+.language-picker { margin-left: auto; min-width: 0; max-width: 100%; }
+.language-picker select { width: 100%; max-width: 220px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 6px; color: var(--ink); background: var(--surface); text-overflow: ellipsis; }
 .page-header > svg { color: var(--accent); width: 25px; height: 25px; }
 h1 { margin: 0; font-size: 24px; line-height: 1.3; overflow-wrap: anywhere; }
 .muted { color: var(--muted); font-size: 14px; overflow-wrap: anywhere; }
@@ -69,6 +71,7 @@ details[open] > summary .disclosure-icon { transform: rotate(180deg); }
 .flashcard-meaning { font-size: 22px; font-weight: 600; overflow-wrap: anywhere; }
 .flashcard-example { color: var(--muted); font-style: italic; max-width: 46ch; overflow-wrap: anywhere; }
 .flashcard-ipa { font-family: "Segoe UI", "Arial", sans-serif; color: var(--muted); font-size: 20px; overflow-wrap: anywhere; max-width: 100%; }
+.flashcard-romanization { color: var(--muted); font-size: 15px; max-width: 100%; overflow-wrap: anywhere; }
 .pronunciation-tools { display: flex; align-items: center; gap: 10px; min-height: 42px; margin-top: 10px; font-size: 13px; }
 .card-tools { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-top: 10px; }
 .card-tools .pronunciation-tools { margin-top: 0; min-width: 0; }
@@ -124,7 +127,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .management-heading { flex-wrap: wrap; }
 .management-heading > .row-tools { flex-wrap: wrap; max-width: 100%; }
 .management-tabs { display: flex; gap: 0; margin: 18px 0 14px; }
-.management-tabs button { border-radius: 0; font-size: 14px; flex: 1; }
+.management-tabs button { border-radius: 0; font-size: 14px; flex: 1; min-width: 0; padding-inline: 8px; }
 .management-tabs button:first-child { border-radius: 6px 0 0 6px; }
 .management-tabs button:last-child { border-radius: 0 6px 6px 0; }
 .management-tabs button + button { border-left: 0; }
@@ -270,6 +273,8 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 @media (max-width: 480px) {
   main { padding-inline: 16px; padding-top: 18px; }
+  .language-picker { flex-basis: 100%; margin-left: 0; }
+  .language-picker select { max-width: none; }
   .vocabulary-toolbar { grid-template-columns: minmax(0, 1fr); gap: 10px; }
   .vocabulary-tools button { flex: 1; min-width: 0; }
   .deck-actions { justify-content: center; }

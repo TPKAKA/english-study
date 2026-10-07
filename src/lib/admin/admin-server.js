@@ -30,7 +30,7 @@ export function createAdminHandlers({ env, createClient }) {
       let change;
       try { change = await request.json(); } catch { return json({ ok: false, error: "Nội dung gửi lên không hợp lệ." }, 400); }
       const importing = change?.action === "import" && change.entity === "words";
-      if (!change || !["words", "groups", "readings"].includes(change.entity) || (!importing && !["create", "update", "delete"].includes(change.action))
+      if (!change || !["words", "groups", "readings", "languages"].includes(change.entity) || (!importing && !["create", "update", "delete"].includes(change.action))
         || (!importing && change.action !== "delete" && (!change.draft || typeof change.draft !== "object" || Array.isArray(change.draft)))) {
         return json({ ok: false, error: "Thao tác hoặc nội dung không hợp lệ." }, 400);
       }

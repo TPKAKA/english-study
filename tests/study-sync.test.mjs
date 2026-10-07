@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createStudySync } from "../src/lib/study/study-sync.js";
 import { STUDY_CONTENT } from "../src/data/study-content.js";
 import { mutateContent } from "../src/lib/content/content-admin.js";
+import { DEFAULT_LANGUAGES } from "../src/lib/study/languages.js";
 
 const config = { url: "https://test-project.supabase.co", publishableKey: "sb_publishable_browser_test_key_long" };
 const userA = { id: "user-a", email: "a@example.com" };
@@ -47,9 +48,10 @@ function harness({ db = backend(), user = null, project = config, cache = new Ma
       async updateUser(request) { authCalls.push(["update", request]); return { error: updateError }; }
     },
     from(table) {
-      let rows, options = {}, operation, single = false, limit = Infinity, offset = 0, end = Infinity;
+      let rows, columns, options = {}, operation, single = false, limit = Infinity, offset = 0, end = Infinity;
       const filters = [], ordering = [];
       async function execute() {
+        if (columns?.includes("card_id") || rows?.some(row => row.card_id)) return { error: { code: "42703" }, data: null };
         if (operation) {
           if (db.holdNext) { db.holdNext = false; await new Promise(resolve => { db.release = resolve; }); }
           if (db.failWrites) return { error: { message: "Network failure" } };
@@ -88,7 +90,7 @@ function harness({ db = backend(), user = null, project = config, cache = new Ma
         return { data: data.slice(offset, Math.min(end + 1, offset + limit)), error: null };
       }
       return {
-        select() { return this; }, eq(column, value) { filters.push([column, value]); return this; },
+        select(value) { columns = value; return this; }, eq(column, value) { filters.push([column, value]); return this; },
         order(column, opts) { ordering.push([column, opts?.ascending !== false]); return this; },
         range(start, last) { offset = start; end = last; return this; },
         limit(value) { limit = value; return this; }, abortSignal() { return this; },
@@ -197,7 +199,7 @@ test("a successfully loaded empty database does not resurrect deleted lessons", 
   const app = harness();
   for (const table of ["vocabulary_groups", "vocabulary_words", "reading_passages", "reading_questions"]) app.db.tables[table] = [];
   await app.start();
-  assert.deepEqual(app.sync.snapshot().content, { groups: [], readings: [] });
+  assert.deepEqual(app.sync.snapshot().content, { languages: [DEFAULT_LANGUAGES[0]], groups: [], readings: [] });
   assert.equal(app.sync.snapshot().contentStatus, "");
   app.sync.stop();
 });

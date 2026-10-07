@@ -1,4 +1,5 @@
-import { contentError, validateContent } from "../content/content-admin.js";
+import { contentError, multilingualCatalog, validateContent } from "../content/content-admin.js";
+import { cardId } from "../study/languages.js";
 
 export const IMPORT_LIMIT = 500;
 export const IMPORT_BYTES = 1024 * 1024;
@@ -11,7 +12,8 @@ export function prepareVocabularyImport({ rows, groupId, mode }, catalog) {
   }
   if (new TextEncoder().encode(JSON.stringify(rows)).length > IMPORT_BYTES) throw new Error("Dữ liệu import tối đa 1 MB.");
   if (!catalog.groups.some(group => group.id === groupId)) throw new Error("Hãy chọn nhóm từ hợp lệ.");
-  const existing = new Map(catalog.words.map(row => [normalizeWord(row.word), row]));
+  const upgraded = multilingualCatalog(catalog);
+  const existing = new Map(catalog.words.filter(row => !upgraded || row.group_id === groupId).map(row => [normalizeWord(row.word), row]));
   const seen = new Set();
   let nextOrder = catalog.words.filter(row => row.group_id === groupId).reduce((max, row) => Math.max(max, row.sort_order + 1), 0);
   const counts = { create: 0, update: 0, skip: 0 };
@@ -23,14 +25,16 @@ export function prepareVocabularyImport({ rows, groupId, mode }, catalog) {
       seen.add(normalized);
       const old = existing.get(normalized);
       const status = old ? mode === "skip" ? "skip" : "update" : "create";
-      for (const field of ["meaning", "ipa", "example"]) {
+      for (const field of ["meaning", "ipa", "example", "reading", "romanization", "cloze_text", "cloze_answer"]) {
         if (source[field] !== undefined && typeof source[field] !== "string") throw new Error(`Trường ${field} phải là văn bản.`);
       }
       const row = validateContent("words", {
         word: old?.word || source.word, group_id: groupId, meaning: source.meaning,
         ipa: source.ipa ?? old?.ipa ?? "", example: source.example ?? old?.example ?? "",
+        ...(upgraded ? { reading: source.reading ?? old?.reading ?? "", romanization: source.romanization ?? old?.romanization ?? "",
+          cloze_text: source.cloze_text ?? old?.cloze_text ?? "", cloze_answer: source.cloze_answer ?? old?.cloze_answer ?? "" } : {}),
         sort_order: old && (status === "skip" || old.group_id === groupId) ? old.sort_order : nextOrder++
-      }, old?.word, catalog);
+      }, old ? cardId(old) : null, catalog);
       counts[status]++;
       return { row, status };
     } catch (error) { throw new Error(`Bản ghi ${index + 1}: ${error.message}`); }

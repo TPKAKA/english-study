@@ -4,12 +4,13 @@ import { useMemo, useState } from "react";
 import { ArrowLeft, ArrowRight, CalendarDays, Check, CheckCheck, CircleHelp, List, Play, RefreshCw, RotateCcw, Zap } from "lucide-react";
 import PronunciationButton from "./pronunciation-button.js";
 import { intervalLabel, previewSrs, selectSrsQueue } from "../../lib/study/srs.js";
+import { cardId, cardMeta, cardPronunciation } from "../../lib/study/languages.js";
 
 const icons = { again: RotateCcw, hard: CircleHelp, good: Check, easy: Zap };
 const localDay = date => new Date(date).toLocaleDateString("sv-SE");
 const dueTime = date => new Date(date).toLocaleString("vi-VN", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
-export default function SrsReview({ data, now, onReview, onRefresh }) {
+export default function SrsReview({ data, language, now, onReview, onRefresh }) {
   const [groupId, setGroupId] = useState("");
   const [active, setActive] = useState(null);
   const [flipped, setFlipped] = useState(false);
@@ -20,23 +21,24 @@ export default function SrsReview({ data, now, onReview, onRefresh }) {
   const queue = useMemo(() => selectSrsQueue(data.content, records, now, groupId), [data.content, records, now, groupId]);
   const scheduled = queue.filter(item => !item.isNew).length;
   const fresh = queue.length - scheduled;
-  const wordSet = new Set(data.content.groups.flatMap(group => group.w.map(word => word[0])));
-  const reviewedToday = Object.values(records).filter(row => wordSet.has(row.word) && localDay(row.reviewed_at) === localDay(now) && (!groupId || data.content.groups.find(group => group.id === groupId)?.w.some(word => word[0] === row.word))).length;
-  const item = queue.find(item => item.word[0] === active);
+  const wordSet = new Set(data.content.groups.flatMap(group => group.w.map(cardId)));
+  const reviewedToday = Object.values(records).filter(row => wordSet.has(row.word) && localDay(row.reviewed_at) === localDay(now) && (!groupId || data.content.groups.find(group => group.id === groupId)?.w.some(word => cardId(word) === row.word))).length;
+  const item = queue.find(item => cardId(item.word) === active);
   const card = item?.word;
   const outcomes = useMemo(() => item ? previewSrs(item.record?.card, now) : [], [item, now]);
   const locked = data.srsLoading || data.contentLoading;
   const future = data.content.groups.filter(group => !groupId || group.id === groupId).flatMap(group => group.w)
-    .map(word => Object.hasOwn(records, word[0]) ? records[word[0]].card.due : null).filter(due => due && Date.parse(due) > now).sort();
+    .map(word => Object.hasOwn(records, cardId(word)) ? records[cardId(word)].card.due : null).filter(due => due && Date.parse(due) > now).sort();
   const pages = Math.max(1, Math.ceil(queue.length / 20));
   const position = Math.min(page, pages - 1);
 
   function choose(word) { setActive(word); setFlipped(false); setError(""); }
   function rate(rating, label) {
     if (!item || !flipped || locked) return;
-    if (!onReview(card[0], rating)) { setError("Chưa lưu được đánh giá. Hãy kiểm tra lịch ôn và thử lại."); return; }
+    if (!onReview(cardId(card), rating)) { setError("Chưa lưu được đánh giá. Hãy kiểm tra lịch ôn và thử lại."); return; }
     setMessage(`Đã ôn “${card[0]}” · ${label}`);
-    choose(queue.find(next => next.word[0] !== card[0])?.word[0] || null);
+    const next = queue.find(next => cardId(next.word) !== cardId(card));
+    choose(next ? cardId(next.word) : null);
   }
 
   return <div className="srs-review">
@@ -44,16 +46,17 @@ export default function SrsReview({ data, now, onReview, onRefresh }) {
     <dl className="srs-stats"><div><dt>Đến hạn</dt><dd>{scheduled}</dd></div><div><dt>Từ mới</dt><dd>{fresh}</dd></div><div><dt>Đã ôn hôm nay</dt><dd>{reviewedToday}</dd></div></dl>
     <div className="srs-controls"><select aria-label="Nhóm từ ôn tập" value={groupId} disabled={locked} onChange={event => { setGroupId(event.target.value); setActive(null); setPage(0); setMessage(""); }}>
       <option value="">Tất cả nhóm</option>{data.content.groups.map(group => <option key={group.id} value={group.id}>{group.n}</option>)}
-    </select>{!card && queue.length > 0 && <button type="button" className="primary-button" disabled={locked} onClick={() => choose(queue[0].word[0])}><Play />Bắt đầu ôn</button>}</div>
+    </select>{!card && queue.length > 0 && <button type="button" className="primary-button" disabled={locked} onClick={() => choose(cardId(queue[0].word))}><Play />Bắt đầu ôn</button>}</div>
     <p className="muted srs-status" role="status">{data.srsStatus}</p>
     {card ? <section aria-label="Thẻ ôn tập">
       <div className="deck-meta"><span>{item.groupName}</span><span>{item.isNew ? "Từ mới" : "Đến hạn ôn"} · {queue.length} còn lại</span></div>
       <button type="button" className="flashcard" title="Lật thẻ" aria-label={`Lật thẻ ôn: ${card[0]}`} aria-pressed={flipped} onClick={() => setFlipped(!flipped)}>
-        <span className="flashcard-word">{card[0]}</span>
+        <span className="flashcard-word" lang={language?.code}>{card[0]}</span>
         {flipped && <><span className="flashcard-meaning">{card[1]}</span><span className="flashcard-example">{card[2]}</span></>}
-        {card[3] && <span className="flashcard-ipa">{card[3]}</span>}
+        {cardPronunciation(card) && <span className="flashcard-ipa">{cardPronunciation(card)}</span>}
+        {cardMeta(card).romanization && <span className="flashcard-romanization">{cardMeta(card).romanization}</span>}
       </button>
-      <div className="srs-card-tools"><PronunciationButton word={card[0]} /><button type="button" className="icon-button" title="Về danh sách ôn" aria-label="Về danh sách ôn" onClick={() => choose(null)}><List /></button></div>
+      <div className="srs-card-tools"><PronunciationButton word={card[0]} language={language} /><button type="button" className="icon-button" title="Về danh sách ôn" aria-label="Về danh sách ôn" onClick={() => choose(null)}><List /></button></div>
       {!flipped && <button type="button" className="srs-reveal" onClick={() => setFlipped(true)}>Hiện đáp án</button>}
       <div className="srs-ratings">{outcomes.map(({ rating, label, tone, due }) => {
         const Icon = icons[tone];
@@ -63,8 +66,8 @@ export default function SrsReview({ data, now, onReview, onRefresh }) {
       })}</div>
     </section> : queue.length ? <>
       <h3 className="srs-list-heading">Danh sách đến hạn ({queue.length})</h3>
-      <ul className="srs-list">{queue.slice(position * 20, position * 20 + 20).map(item => <li key={item.word[0]}>
-        <button type="button" className="srs-word" disabled={locked} onClick={() => choose(item.word[0])}><strong>{item.word[0]}</strong><span className="ipa-text">{item.word[3]}</span></button>
+      <ul className="srs-list">{queue.slice(position * 20, position * 20 + 20).map(item => <li key={cardId(item.word)}>
+        <button type="button" className="srs-word" disabled={locked} onClick={() => choose(cardId(item.word))}><strong lang={language?.code}>{item.word[0]}</strong><span className="ipa-text">{cardPronunciation(item.word) || cardMeta(item.word).romanization}</span></button>
         <span className="srs-list-meta">{item.groupName}<small>{item.isNew ? "Từ mới" : dueTime(item.record.card.due)}</small></span>
       </li>)}</ul>
       <div className="management-pagination"><span>{queue.length} từ</span><div className="navigation-tools">

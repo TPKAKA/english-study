@@ -1,7 +1,12 @@
-# Business English
+# Language Study
 
 Website học từ vựng và đọc hiểu, dùng Next.js App Router, React và Supabase.
 Có IPA, gợi ý phiên âm khi thêm/import, phát âm, ôn tập ngắt quãng (SRS), luyện gõ đáp án, quản lý thẻ, đồng bộ tiến độ và đăng nhập bằng cookie HttpOnly.
+
+Hỗ trợ tiếng Anh và tiếng Hàn trong cùng ứng dụng. Chọn **Ngôn ngữ học**
+trước khi chọn nhóm; thẻ, bài đọc, lịch ôn và từ cần luyện lại được lọc theo ngôn ngữ.
+Admin thêm ngôn ngữ mới trong **Quản lý thẻ > Ngôn ngữ**.
+Nâng cấp Supabase và thêm bộ từ Hàn mẫu theo [hướng dẫn đa ngôn ngữ](docs/multilingual.md).
 
 ## Cấu trúc thư mục
 
@@ -27,7 +32,8 @@ english-study/
       supabase/               # Environment config and server SDK client
       vocabulary/             # CSV, XLSX, batch import and IPA suggestions
     data/
-      study-content.js        # Starter lessons and offline fallback
+      study-content.js        # Original English starter lessons
+      korean-content.js       # Korean starter cards and multilingual fallback
   public/
     templates/                # Downloadable CSV and XLSX templates
   supabase/
@@ -35,6 +41,7 @@ english-study/
     schema.sql
     seed.sql
     ipa-backfill.sql
+    korean-seed.sql
   tests/                      # Node tests and fake Auth backend
     helpers/
   scripts/                    # Page/connection checks and SQL generation
@@ -90,6 +97,7 @@ bằng dữ liệu dự phòng trong development; production cần đủ cấu h
 | `npm run check:page` | Kiểm tra trang/API/file mẫu trên server đang chạy; có thể đặt `TEST_URL` |
 | `npm run check:db` | Kiểm tra đọc nội dung từ Supabase bằng `.env.local`, không ghi dữ liệu |
 | `npm run db:seed` | Sinh lại hai file SQL seed và IPA từ bài học mẫu, không tự chạy SQL trên Supabase |
+| `node scripts/generate-korean-seed.mjs` | Sinh lại bộ từ Hàn mẫu, không tự chạy SQL |
 
 Hướng dẫn migration, cấp quyền admin, đăng nhập, SMTP/OTP, import và deploy:
 [Cấu hình và vận hành](docs/setup.md).

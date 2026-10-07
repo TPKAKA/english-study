@@ -4,15 +4,18 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, CheckCheck, Eye, Headphones, Keyboard, Languages, Play, RefreshCw, RotateCcw, Shuffle, TextCursorInput, X } from "lucide-react";
 import PronunciationButton from "./pronunciation-button.js";
 import { MAX_PRACTICE_ANSWER, PRACTICE_MODES, selectPracticeQueue } from "../../lib/study/typing-practice.js";
+import { cardId, cardPronunciation } from "../../lib/study/languages.js";
+import { useSpeechVoice } from "./use-speech-voice.js";
 
 const icons = { meaning: Languages, listening: Headphones, cloze: TextCursorInput };
 
-export default function TypingPractice({ data, onAnswer, onRefresh }) {
+export default function TypingPractice({ data, language, onAnswer, onRefresh }) {
   const [mode, setMode] = useState("meaning"), [groupId, setGroupId] = useState("");
   const [onlyMistakes, setOnlyMistakes] = useState(false), [session, setSession] = useState(null);
   const [answer, setAnswer] = useState(""), [result, setResult] = useState(null), [error, setError] = useState("");
-  const [audioSupported, setAudioSupported] = useState(null), [page, setPage] = useState(0);
-  const input = useRef(null), nextButton = useRef(null), submitted = useRef(false);
+  const [page, setPage] = useState(0);
+  const { supported: audioSupported } = useSpeechVoice(language?.speech_locale || "en-GB");
+  const input = useRef(null), nextButton = useRef(null), submitted = useRef(false), composing = useRef(false);
   const records = data.practice || {};
   const available = useMemo(() => selectPracticeQueue(data.content, records, mode, groupId), [data.content, records, mode, groupId]);
   const mistakes = useMemo(() => selectPracticeQueue(data.content, records, mode, groupId, true), [data.content, records, mode, groupId]);
@@ -21,7 +24,6 @@ export default function TypingPractice({ data, onAnswer, onRefresh }) {
   const item = session?.questions[session.index];
   const finished = session && !item;
   const pages = Math.max(1, Math.ceil(mistakes.length / 20)), position = Math.min(page, pages - 1);
-  useEffect(() => { setAudioSupported("speechSynthesis" in window && "SpeechSynthesisUtterance" in window); }, []);
   useEffect(() => { if (item && !locked) (result ? nextButton : input).current?.focus(); }, [item, result, locked]);
 
   function resetQuestion() { setAnswer(""); setResult(null); setError(""); submitted.current = false; }
@@ -33,9 +35,9 @@ export default function TypingPractice({ data, onAnswer, onRefresh }) {
     setSession({ questions: order, index: 0, correct: 0, wrong: 0 }); resetQuestion();
   }
   function check(reveal = false) {
-    if (!item || result || submitted.current || locked) return;
+    if (!item || result || submitted.current || locked || composing.current) return;
     if (!reveal && !answer.trim()) { setError("Nhập đáp án trước khi kiểm tra."); input.current?.focus(); return; }
-    const grade = onAnswer(item.word[0], mode, reveal ? "" : answer);
+    const grade = onAnswer(cardId(item.word), mode, reveal ? "" : answer);
     if (!grade) { setError("Chưa lưu được câu trả lời. Hãy chờ dữ liệu tải xong rồi thử lại."); return; }
     submitted.current = true; setError(""); setResult({ ...grade, revealed: reveal });
     setSession(previous => ({ ...previous, [grade.correct ? "correct" : "wrong"]: previous[grade.correct ? "correct" : "wrong"] + 1 }));
@@ -51,7 +53,7 @@ export default function TypingPractice({ data, onAnswer, onRefresh }) {
         <Icon /><span>{option.label}</span>
       </label>;
     })}</fieldset>
-    {audioSupported === false && <p className="muted">Thiết bị này không hỗ trợ nghe và viết.</p>}
+    {audioSupported === false && <p className="muted">Thiết bị chưa có giọng đọc {language?.name || "tiếng Anh"}.</p>}
     <div className="practice-filters"><select aria-label="Nhóm từ luyện gõ" value={groupId} disabled={locked} onChange={event => { setGroupId(event.target.value); reset(); }}>
       <option value="">Tất cả nhóm</option>{data.content.groups.map(group => <option key={group.id} value={group.id}>{group.n}</option>)}
     </select><label className="checkbox-label"><input type="checkbox" checked={onlyMistakes} disabled={locked} onChange={event => { setOnlyMistakes(event.target.checked); reset(); }} />Chỉ từ trả lời sai</label></div>
@@ -59,11 +61,11 @@ export default function TypingPractice({ data, onAnswer, onRefresh }) {
     {item ? <section aria-label="Câu luyện gõ">
       <div className="deck-meta"><span>{item.groupName}</span><span>{session.index + 1} / {session.questions.length} · Đúng {session.correct} · Sai {session.wrong}</span></div>
       <div className={`practice-prompt ${mode}`}>
-        {mode === "listening" ? <><Headphones aria-hidden="true" /><PronunciationButton key={`${session.index}:${item.word[0]}`} word={item.word[0]} /></> : <p lang={mode === "cloze" ? "en" : "vi"}>{item.prompt}</p>}
+        {mode === "listening" ? <><Headphones aria-hidden="true" /><PronunciationButton key={`${session.index}:${cardId(item.word)}`} word={item.word[0]} language={language} /></> : <p lang={mode === "cloze" ? language?.code : "vi"}>{item.prompt}</p>}
       </div>
-      <form className="practice-form" onSubmit={event => { event.preventDefault(); result ? next() : check(); }}>
-        <label htmlFor="practice-answer">{mode === "cloze" ? "Từ còn thiếu" : "Từ tiếng Anh"}</label>
-        <input ref={input} id="practice-answer" type="text" lang="en" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} maxLength={MAX_PRACTICE_ANSWER} value={answer} disabled={!!result || locked} aria-invalid={result ? !result.correct : undefined} aria-describedby="practice-feedback" onChange={event => { setAnswer(event.target.value); setError(""); }} />
+      <form className="practice-form" onSubmit={event => { event.preventDefault(); if (!composing.current) result ? next() : check(); }}>
+        <label htmlFor="practice-answer">{mode === "cloze" ? "Từ còn thiếu" : `Từ ${language?.name.toLocaleLowerCase("vi") || "tiếng Anh"}`}</label>
+        <input ref={input} id="practice-answer" type="text" lang={language?.code || "en"} autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} maxLength={MAX_PRACTICE_ANSWER} value={answer} disabled={!!result || locked} aria-invalid={result ? !result.correct : undefined} aria-describedby="practice-feedback" onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onKeyDown={event => { if (event.key === "Enter" && (composing.current || event.nativeEvent.isComposing || event.keyCode === 229)) event.preventDefault(); }} onChange={event => { setAnswer(event.target.value); setError(""); }} />
         <div className="practice-actions"><button ref={nextButton} type="submit" className="primary-button" disabled={locked}>{result ? <><ArrowRight />{session.index + 1 === session.questions.length ? "Xem kết quả" : "Câu tiếp theo"}</> : <><Check />Kiểm tra</>}</button>
           {!result && <button type="button" disabled={locked} onClick={() => check(true)}><Eye />Xem đáp án</button>}
           <button type="button" className="icon-button" title="Về danh sách luyện gõ" aria-label="Về danh sách luyện gõ" onClick={reset}><ArrowLeft /></button>
@@ -71,8 +73,8 @@ export default function TypingPractice({ data, onAnswer, onRefresh }) {
       </form>
       <div id="practice-feedback" className={`practice-feedback ${result ? result.correct ? "correct" : "incorrect" : ""}`} role="status">
         {result && <><strong className="practice-verdict">{result.correct ? <Check /> : <X />}{result.correct ? "Chính xác" : result.revealed ? "Đã xem đáp án · Cần luyện lại" : "Chưa đúng · Cần luyện lại"}</strong>
-          <div className="practice-answer-key"><strong lang="en">{result.expected}</strong>{item.word[3] && <span className="ipa-text">{item.word[3]}</span>}{mode !== "listening" && <PronunciationButton word={item.word[0]} />}</div>
-          <p>{item.word[1]}</p><p className="muted" lang="en">{item.word[2]}</p>
+          <div className="practice-answer-key"><strong lang={language?.code}>{result.expected}</strong>{cardPronunciation(item.word) && <span className="ipa-text">{cardPronunciation(item.word)}</span>}{mode !== "listening" && <PronunciationButton word={item.word[0]} language={language} />}</div>
+          <p>{item.word[1]}</p><p className="muted" lang={language?.code}>{item.word[2]}</p>
         </>}
       </div>
     </section> : <>
@@ -84,8 +86,8 @@ export default function TypingPractice({ data, onAnswer, onRefresh }) {
       </div></div>
       {!queue.length && <p className="muted">{locked ? "Đang tải luyện gõ…" : onlyMistakes ? "Không có từ sai phù hợp với bộ lọc." : mode === "cloze" ? "Chưa có câu ví dụ chứa đúng từ trong nhóm này." : "Nhóm này chưa có từ vựng."}</p>}
       <h3 className="practice-list-heading">Từ cần luyện lại ({mistakes.length})</h3>
-      <ul className="practice-mistakes">{mistakes.slice(position * 20, position * 20 + 20).map(entry => <li key={entry.word[0]}>
-        <div><strong lang="en">{entry.word[0]}</strong> <span className="ipa-text">{entry.word[3]}</span><span>{entry.word[1]}</span><small>Đã nhập: {records[entry.word[0]].last_answer || "Chưa nhập"}</small></div>
+      <ul className="practice-mistakes">{mistakes.slice(position * 20, position * 20 + 20).map(entry => <li key={cardId(entry.word)}>
+        <div><strong lang={language?.code}>{entry.word[0]}</strong> <span className="ipa-text">{cardPronunciation(entry.word)}</span><span>{entry.word[1]}</span><small>Đã nhập: {records[cardId(entry.word)].last_answer || "Chưa nhập"}</small></div>
         <button type="button" className="icon-button" title={`Luyện lại ${entry.word[0]}`} aria-label={`Luyện lại ${entry.word[0]}`} disabled={locked} onClick={() => start([entry])}><RotateCcw /></button>
       </li>)}</ul>
       {pages > 1 && <div className="management-pagination"><span>{mistakes.length} từ sai</span><div className="navigation-tools">

@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, CalendarDays, Check, CheckCheck, ChevronDown, Cloud, CloudOff, Keyboard, KeyRound, ListChecks, LogIn, LogOut, Mail, Pencil, Plus, RefreshCw, RotateCcw, Settings2, Shuffle, Trash2, Upload, UserRound, X } from "lucide-react";
-import { STUDY_CONTENT } from "../../data/study-content.js";
+import { MULTILINGUAL_CONTENT } from "../../data/korean-content.js";
+import { cardId, cardMeta, cardPronunciation, languageContent, languagesFor, speechLanguage } from "../../lib/study/languages.js";
 import { createStudySync } from "../../lib/study/study-sync.js";
 import { getStudyApiClient } from "../../lib/api/api-client.js";
 import { requestIpaSuggestions } from "../../lib/admin/admin-browser.js";
@@ -18,15 +19,15 @@ function IconButton({ label, children, ...props }) {
   return <button type="button" className="icon-button" title={label} aria-label={label} {...props}>{children}</button>;
 }
 
-function VocabularyDeck({ group, known, onMark, canEdit, editBusy, onManage }) {
+function VocabularyDeck({ group, known, onMark, canEdit, editBusy, onManage, language }) {
   const [order, setOrder] = useState(() => group.w.slice());
   const [index, setIndex] = useState(0);
   const [flipped, setFlipped] = useState(false);
   const [onlyUnknown, setOnlyUnknown] = useState(false);
-  const deck = onlyUnknown ? order.filter(word => !known.has(word[0])) : order;
+  const deck = onlyUnknown ? order.filter(word => !known.has(cardId(word))) : order;
   const position = deck.length ? Math.min(index, deck.length - 1) : 0;
   const card = deck[position];
-  const completed = group.w.filter(word => known.has(word[0])).length;
+  const completed = group.w.filter(word => known.has(cardId(word))).length;
 
   function move(delta) {
     if (!deck.length) return;
@@ -36,7 +37,7 @@ function VocabularyDeck({ group, known, onMark, canEdit, editBusy, onManage }) {
 
   function mark(value) {
     if (!card) return;
-    onMark(card[0], value);
+    onMark(cardId(card), value);
     if (!onlyUnknown) setIndex((position + 1) % deck.length);
     setFlipped(false);
   }
@@ -56,14 +57,15 @@ function VocabularyDeck({ group, known, onMark, canEdit, editBusy, onManage }) {
     <div className="vocabulary-progress"><div className="deck-meta"><span>Tiến độ nhóm</span><span>{completed} / {group.w.length} đã thuộc</span></div>
       <progress value={completed} max={Math.max(1, group.w.length)} aria-label={`Tiến độ nhóm ${group.n}`}>{completed} / {group.w.length}</progress>
     </div>
-    {card ? <button type="button" className="flashcard" onClick={() => setFlipped(!flipped)} aria-label={`Lật thẻ: ${card[0]}. ${flipped ? card[1] + ". " + card[2] + ". " : ""}${card[3] || ""}`} aria-pressed={flipped} title="Lật thẻ">
-      {flipped ? <><span className="flashcard-meaning">{card[1]}</span><span className="flashcard-example">{card[2]}</span></> : <span className="flashcard-word">{card[0]}</span>}
-      {card[3] && <span className="flashcard-ipa" lang="en-GB">{card[3]}</span>}
+    {card ? <button type="button" className="flashcard" onClick={() => setFlipped(!flipped)} aria-label={`Lật thẻ: ${card[0]}. ${flipped ? card[1] + ". " + card[2] + ". " : ""}${cardPronunciation(card) || ""}`} aria-pressed={flipped} title="Lật thẻ">
+      {flipped ? <><span className="flashcard-meaning">{card[1]}</span><span className="flashcard-example" lang={language.code}>{card[2]}</span></> : <span className="flashcard-word" lang={language.code}>{card[0]}</span>}
+      {cardPronunciation(card) && <span className="flashcard-ipa" lang={language.code}>{cardPronunciation(card)}</span>}
+      {cardMeta(card).romanization && <span className="flashcard-romanization" lang="en">{cardMeta(card).romanization}</span>}
     </button> : <div className="empty-deck"><CheckCheck aria-hidden="true" /><p>{group.w.length ? "Bạn đã thuộc hết nhóm này." : "Nhóm này chưa có từ vựng."}</p>{group.w.length > 0 && <button type="button" onClick={() => { setOnlyUnknown(false); setIndex(0); }}>Xem tất cả</button>}</div>}
-    <div className="card-tools"><PronunciationButton word={card?.[0]} />
+    <div className="card-tools"><PronunciationButton word={card?.[0]} language={language} />
       {canEdit && card && <div className="row-tools">
-        <IconButton label={`Sửa thẻ ${card[0]}`} disabled={editBusy} onClick={() => onManage("edit", card[0])}><Pencil /></IconButton>
-        <IconButton label={`Xóa thẻ ${card[0]}`} disabled={editBusy} onClick={() => onManage("delete", card[0])}><Trash2 /></IconButton>
+        <IconButton label={`Sửa thẻ ${card[0]}`} disabled={editBusy} onClick={() => onManage("edit", cardId(card))}><Pencil /></IconButton>
+        <IconButton label={`Xóa thẻ ${card[0]}`} disabled={editBusy} onClick={() => onManage("delete", cardId(card))}><Trash2 /></IconButton>
       </div>}
     </div>
     <div className="deck-actions">
@@ -109,7 +111,7 @@ function ReadingQuiz({ reading, onSave }) {
 
   return <>
     <div className="reading-meta"><BookOpen aria-hidden="true" /><span>Mục tiêu thời gian: {reading.time}</span></div>
-    <article className="passage">{reading.p}</article>
+    <article className="passage" lang={reading.language_code || "en"}>{reading.p}</article>
     <form className="reading-quiz" onSubmit={submit}>
       {reading.q.map((question, index) => <fieldset className="question" key={index}>
         <legend>{index + 1}. {question.q}</legend>
@@ -131,9 +133,10 @@ function ReadingQuiz({ reading, onSave }) {
 }
 
 export default function StudyApp({ config }) {
-  const [data, setData] = useState(() => ({ content: STUDY_CONTENT, contentStatus: "", contentRevision: 0, catalog: null, canEdit: false, editorStatus: "", adminBusy: false, contentLoading: false, known: [], attempts: [], user: null, status: "Tiến độ trên thiết bị", connected: false, busy: false, authBusy: false, authMessage: "", storageFailed: false }));
+  const [data, setData] = useState(() => ({ content: MULTILINGUAL_CONTENT, contentStatus: "", contentRevision: 0, catalog: null, canEdit: false, editorStatus: "", adminBusy: false, contentLoading: false, known: [], attempts: [], user: null, status: "Tiến độ trên thiết bị", connected: false, busy: false, authBusy: false, authMessage: "", storageFailed: false }));
   const [tab, setTab] = useState("vocabulary");
-  const [groupId, setGroupId] = useState(STUDY_CONTENT.groups[0].id);
+  const [languageCode, setLanguageCode] = useState("en");
+  const [groupByLanguage, setGroupByLanguage] = useState({});
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -147,6 +150,12 @@ export default function StudyApp({ config }) {
   const account = useRef(null);
   const managementRequest = useRef(0);
   useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(`language-study:language:${config.url || "local"}`);
+      if (saved) setLanguageCode(saved);
+    } catch {}
+  }, [config.url]);
+  useEffect(() => {
     const tick = () => setReviewNow(Date.now());
     tick(); const timer = window.setInterval(tick, 15000);
     window.addEventListener("focus", tick);
@@ -155,7 +164,7 @@ export default function StudyApp({ config }) {
 
   useEffect(() => {
     const service = createStudySync({
-      config, initialContent: STUDY_CONTENT, createClient: getStudyApiClient,
+      config, initialContent: MULTILINGUAL_CONTENT, createClient: getStudyApiClient,
       storage: { getItem: key => window.localStorage.getItem(key), setItem: (key, value) => window.localStorage.setItem(key, value) },
       onChange: setData
     });
@@ -167,13 +176,18 @@ export default function StudyApp({ config }) {
   }, [config.url, config.publishableKey]);
 
   const known = useMemo(() => new Set(data.known), [data.known]);
-  const group = data.content.groups.find(item => item.id === groupId) || data.content.groups[0];
-  const reading = data.content.readings.find(item => item.id === tab);
+  const languages = languagesFor(data.content);
+  const language = speechLanguage(data.content, languages.some(item => item.code === languageCode) ? languageCode : languages[0]?.code || "en");
+  const content = useMemo(() => languageContent(data.content, language.code), [data.content, language.code]);
+  const languageData = { ...data, content };
+  const group = content.groups.find(item => item.id === groupByLanguage[language.code]) || content.groups[0];
+  const setGroupId = id => setGroupByLanguage(previous => ({ ...previous, [language.code]: id }));
+  const reading = content.readings.find(item => item.id === tab);
   const managing = tab === "manage";
   const reviewing = tab === "review";
   const practicing = tab === "practice";
   const activeTab = managing ? "manage" : reviewing ? "review" : practicing ? "practice" : reading ? tab : "vocabulary";
-  const reviewCount = useMemo(() => selectSrsQueue(data.content, data.srs || {}, reviewNow).length, [data.content, data.srs, reviewNow]);
+  const reviewCount = useMemo(() => selectSrsQueue(content, data.srs || {}, reviewNow).length, [content, data.srs, reviewNow]);
   const scope = data.user?.id || "guest";
   const contentVersion = data.contentRevision;
   const titles = Object.fromEntries(data.content.readings.map(item => [item.id, item.t]));
@@ -211,15 +225,23 @@ export default function StudyApp({ config }) {
     account.current.scrollIntoView({ block: "start" });
     (account.current.querySelector("input") || account.current.querySelector("summary")).focus();
   }
+  function changeLanguage(code) {
+    setLanguageCode(code); setTab("vocabulary"); setManageIntent(null);
+    try { window.localStorage.setItem(`language-study:language:${config.url || "local"}`, code); } catch {}
+  }
   function manageCards(mode, word) {
-    const row = word ? data.catalog?.words.find(item => item.word === word) : null;
+    const row = word ? data.catalog?.words.find(item => cardId(item) === word) : null;
     if (word && !row) return;
     setManageIntent({ mode, row, groupId: group?.id || "", request: ++managementRequest.current });
     setTab("manage");
   }
 
   return <main>
-    <header className="page-header"><BookOpen aria-hidden="true" /><h1>Business English</h1></header>
+    <header className="page-header"><BookOpen aria-hidden="true" /><h1>Language Study</h1>
+      <label className="language-picker"><span className="visually-hidden">Ngôn ngữ học</span><select aria-label="Ngôn ngữ học" value={languages.length ? language.code : ""} disabled={data.adminBusy || data.contentLoading || !languages.length} onChange={event => changeLanguage(event.target.value)}>
+        {languages.length ? languages.map(item => <option key={item.code} value={item.code}>{item.name}</option>) : <option value="">Chưa có ngôn ngữ</option>}
+      </select></label>
+    </header>
     <section className="account" aria-label="Tài khoản và tiến độ">
       <details ref={account}>
         <summary><UserRound aria-hidden="true" /><span>Tài khoản</span><ChevronDown className="disclosure-icon" aria-hidden="true" /></summary>
@@ -256,28 +278,28 @@ export default function StudyApp({ config }) {
       <button type="button" className={activeTab === "vocabulary" ? "active" : ""} aria-pressed={activeTab === "vocabulary"} onClick={() => setTab("vocabulary")}>Từ vựng</button>
       <button type="button" className={reviewing ? "active" : ""} aria-pressed={reviewing} onClick={() => setTab("review")}><CalendarDays />Ôn tập ({reviewCount})</button>
       <button type="button" className={practicing ? "active" : ""} aria-pressed={practicing} onClick={() => setTab("practice")}><Keyboard />Luyện gõ</button>
-      {data.content.readings.map(item => <button type="button" key={item.id} className={activeTab === item.id ? "active" : ""} aria-pressed={activeTab === item.id} onClick={() => setTab(item.id)}>{item.t}</button>)}
+      {content.readings.map(item => <button type="button" key={item.id} className={activeTab === item.id ? "active" : ""} aria-pressed={activeTab === item.id} onClick={() => setTab(item.id)}>{item.t}</button>)}
       <button type="button" className={managing ? "active" : ""} aria-pressed={managing} onClick={() => { setManageIntent(null); setTab("manage"); }}><Settings2 />Quản lý thẻ</button>
     </nav>
     {data.contentStatus && <p className="content-status muted" role="status">{data.contentStatus}</p>}
     <section aria-label={managing ? "Quản lý nội dung" : reviewing ? "Ôn tập ngắt quãng" : practicing ? "Luyện gõ đáp án" : reading ? reading.t : "Từ vựng"}>
-      {practicing ? <TypingPractice key={`${scope}:${contentVersion}`} data={data} onAnswer={(word, mode, answer) => sync.current?.submitPracticeAnswer(word, mode, answer)} onRefresh={() => sync.current?.refreshPractice()} /> :
-      reviewing ? <SrsReview key={`${scope}:${contentVersion}`} data={data} now={reviewNow} onReview={(word, rating) => sync.current?.reviewWord(word, rating)} onRefresh={() => sync.current?.refreshSrs()} /> :
-      managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
+      {practicing ? <TypingPractice key={`${scope}:${contentVersion}:${language.code}`} data={languageData} language={language} onAnswer={(word, mode, answer) => sync.current?.submitPracticeAnswer(word, mode, answer)} onRefresh={() => sync.current?.refreshPractice()} /> :
+      reviewing ? <SrsReview key={`${scope}:${contentVersion}:${language.code}`} data={languageData} language={language} now={reviewNow} onReview={(word, rating) => sync.current?.reviewWord(word, rating)} onRefresh={() => sync.current?.refreshSrs()} /> :
+      managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}:${language.code}`} data={data} language={language} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
         <div className="vocabulary-toolbar">
           <label className="vocabulary-group" htmlFor="vocabulary-group"><span>Nhóm từ vựng</span>
             <select id="vocabulary-group" value={group?.id || ""} title={group?.n || "Nhóm từ vựng"} disabled={data.contentLoading || !group} onChange={event => setGroupId(event.target.value)}>
-              {data.content.groups.length ? data.content.groups.map(item => <option key={item.id} value={item.id}>{`${item.n} (${item.w.length} từ)`}</option>) : <option value="">Chưa có nhóm</option>}
+              {content.groups.length ? content.groups.map(item => <option key={item.id} value={item.id}>{`${item.n} (${item.w.length} từ)`}</option>) : <option value="">Chưa có nhóm</option>}
             </select>
           </label>
           <div className="vocabulary-tools"><button type="button" title="Thêm thẻ vào nhóm đang chọn" onClick={() => manageCards("edit")} disabled={data.adminBusy}><Plus />Thêm thẻ</button>
             <button type="button" title="Import thẻ vào nhóm đang chọn" onClick={() => manageCards("import")} disabled={data.adminBusy}><Upload />Import thẻ</button></div>
         </div>
-        {group ? <VocabularyDeck key={`${group.id}:${scope}:${contentVersion}`} group={group} known={known} onMark={(word, value) => sync.current?.mark(word, value)} canEdit={data.canEdit && !!data.catalog} editBusy={data.adminBusy || data.contentLoading} onManage={manageCards} /> : <p className="muted">Chưa có từ vựng.</p>}
+        {group ? <VocabularyDeck key={`${group.id}:${scope}:${contentVersion}`} group={group} language={language} known={known} onMark={(word, value) => sync.current?.mark(word, value)} canEdit={data.canEdit && !!data.catalog} editBusy={data.adminBusy || data.contentLoading} onManage={manageCards} /> : <p className="muted">Chưa có từ vựng.</p>}
       </>}
     </section>
     {!managing && <details className="history"><summary><ListChecks aria-hidden="true" /><span>Lịch sử bài đọc</span><ChevronDown className="disclosure-icon" aria-hidden="true" /></summary>
-      {data.attempts.length ? <ul>{data.attempts.map(attempt => <li key={attempt.id}><span>{titles[attempt.reading_id] || attempt.reading_id}</span><strong>{attempt.score} / {attempt.total}</strong><time dateTime={attempt.completed_at}>{new Date(attempt.completed_at).toLocaleString("vi-VN")}</time></li>)}</ul> : <p className="muted">Chưa có kết quả.</p>}
+      {data.attempts.some(attempt => content.readings.some(reading => reading.id === attempt.reading_id)) ? <ul>{data.attempts.filter(attempt => content.readings.some(reading => reading.id === attempt.reading_id)).map(attempt => <li key={attempt.id}><span>{titles[attempt.reading_id] || attempt.reading_id}</span><strong>{attempt.score} / {attempt.total}</strong><time dateTime={attempt.completed_at}>{new Date(attempt.completed_at).toLocaleString("vi-VN")}</time></li>)}</ul> : <p className="muted">Chưa có kết quả.</p>}
     </details>}
   </main>;
 }

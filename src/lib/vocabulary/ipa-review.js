@@ -7,8 +7,7 @@ export function ipaCandidateLabel(candidate) {
 }
 
 export function missingImportIpa(preview, catalog) {
-  const existing = new Map(catalog.words.map(row => [key(row.word), row]));
-  return (preview?.prepared || []).filter(({ row, status }) => status !== "skip" && !row.ipa.trim() && !existing.get(key(row.word))?.ipa?.trim())
+  return (preview?.prepared || []).filter(({ row, status }) => status !== "skip" && (catalog.groups.find(group => group.id === row.group_id)?.language_code || "en") === "en" && !row.ipa.trim() && !catalog.words.find(old => (!(catalog.multilingual ?? !!catalog.languages) || old.group_id === row.group_id) && key(old.word) === key(row.word))?.ipa?.trim())
     .map(({ row }) => row.word);
 }
 

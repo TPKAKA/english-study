@@ -1,7 +1,8 @@
 import { withCookieSession, readJson, sessionJson } from "../auth/session-server.js";
-import { fetchCatalog } from "../content/content-admin.js";
+import { fetchCatalog, toStudyContent } from "../content/content-admin.js";
 import { createPracticeData } from "./practice-data.js";
 import { gradePracticeAnswer, normalizePracticeRecords } from "./typing-practice.js";
+import { cardId, cardMeta } from "./languages.js";
 
 export function createPracticeHandlers(dependencies = {}) {
   const unavailable = () => sessionJson({ ok: false, error: "Chưa đồng bộ được luyện gõ. Kết quả vẫn được giữ trên thiết bị." }, 503);
@@ -21,12 +22,14 @@ export function createPracticeHandlers(dependencies = {}) {
         if (!Array.isArray(body.rows) || !body.rows.length || body.rows.length > 500) return sessionJson({ ok: false }, 400);
         let catalog;
         try { catalog = await fetchCatalog(client); } catch { return unavailable(); }
-        const words = new Map(catalog.words.map(row => [row.word, [row.word, row.meaning, row.example, row.ipa]]));
+        const words = new Map(toStudyContent(catalog).groups.flatMap(group => group.w).map(card => [cardId(card), card]));
         const rows = [], seen = new Set();
         for (const input of body.rows) {
           const record = Object.values(normalizePracticeRecords([input]))[0];
-          // Cloze hides the literal dictionary word, so an edited example must not invalidate an offline answer.
-          const grade = record && gradePracticeAnswer(words.get(record.word), "meaning", record.last_answer);
+          const card = record && words.get(record.word);
+          // Explicit cloze answers may be inflected; legacy literal cloze remains valid after example edits.
+          const mode = card && record.mode === "cloze" && cardMeta(card).cloze_answer ? "cloze" : "meaning";
+          const grade = card && gradePracticeAnswer(card, mode, record.last_answer);
           if (!record || !grade || seen.has(record.word) || Date.parse(record.answered_at) < Date.UTC(2000, 0, 1)
             || Date.parse(record.answered_at) > Date.now() + 300000) return sessionJson({ ok: false, error: "Kết quả luyện gõ không hợp lệ." }, 400);
           seen.add(record.word);

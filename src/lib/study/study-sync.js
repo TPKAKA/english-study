@@ -8,6 +8,7 @@ import { createSrsData } from "./srs-data.js";
 import { normalizeSrsRecords, reviewSrsCard } from "./srs.js";
 import { createPracticeData } from "./practice-data.js";
 import { gradePracticeAnswer, normalizePracticeRecords } from "./typing-practice.js";
+import { cardId } from "./languages.js";
 
 export function createStudySync({ config, initialContent, createClient, storage, onChange, adminRequest = requestAdmin, schedule = callback => setTimeout(callback, 0), makeId = () => crypto.randomUUID(), now = () => new Date().toISOString() }) {
   const storagePrefix = "english-study:" + (config.url || "local") + ":";
@@ -19,7 +20,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
   let storageFailed = false, status = "Tiến độ trên thiết bị";
   let catalog = null, contentRevision = 0, contentLoading = false, contentRequest = 0;
   let canEdit = false, editorStatus = "", adminBusy = false;
-  let validWords = new Set(content.groups.flatMap(group => group.w.map(word => word[0])));
+  let validWords = new Set(content.groups.flatMap(group => group.w.map(cardId)));
   let state = load("guest");
 
   function load(owner) {
@@ -251,7 +252,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
       catalog = nextCatalog;
       content = toStudyContent(catalog);
       contentRevision++;
-      validWords = new Set(content.groups.flatMap(group => group.w.map(word => word[0])));
+      validWords = new Set(content.groups.flatMap(group => group.w.map(cardId)));
       state.srs = Object.fromEntries(Object.entries(state.srs).filter(([word]) => validWords.has(word)));
       state.pendingSrs = Object.fromEntries(Object.entries(state.pendingSrs).filter(([word]) => validWords.has(word)));
       state.practice = Object.fromEntries(Object.entries(state.practice).filter(([word]) => validWords.has(word)));
@@ -383,7 +384,7 @@ export function createStudySync({ config, initialContent, createClient, storage,
     start, async refresh() { await refresh(); await refreshSrs(); await refreshPractice(); }, refreshSrs, refreshPractice, signIn, signOut, setPassword, snapshot, reloadContent: loadContent,
     submitPracticeAnswer(word, mode, answer) {
       if (disposed || practiceLoading || contentLoading || !validWords.has(word)) return null;
-      const card = content.groups.flatMap(group => group.w).find(card => card[0] === word);
+      const card = content.groups.flatMap(group => group.w).find(card => cardId(card) === word);
       const grade = gradePracticeAnswer(card, mode, answer);
       if (!grade) return null;
       const previous = Object.hasOwn(state.practice, word) ? state.practice[word] : null;

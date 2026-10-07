@@ -1,3 +1,5 @@
+import { cardId, cardMeta } from "./languages.js";
+
 export const PRACTICE_MODES = Object.freeze([
   { id: "meaning", label: "Xem nghĩa" },
   { id: "listening", label: "Nghe và viết" },
@@ -14,6 +16,8 @@ export function normalizeEnglishAnswer(value) {
 export function makePracticeQuestion(word, mode) {
   if (!validMode(mode) || !Array.isArray(word) || typeof word[0] !== "string" || !word[0].trim()) return null;
   if (mode !== "cloze") return { mode, expected: word[0], prompt: mode === "meaning" ? word[1] : "" };
+  const metadata = cardMeta(word);
+  if (metadata.cloze_text && metadata.cloze_answer) return { mode, expected: metadata.cloze_answer, prompt: metadata.cloze_text };
   if (typeof word[2] !== "string" || !word[2].trim()) return null;
   const literal = word[0].trim().split(/\s+/).map(part => [...part].map(char => {
     if (/[‘’']/.test(char)) return "['‘’]";
@@ -39,7 +43,8 @@ export function selectPracticeQueue(content, records, mode, groupId = "", onlyMi
   for (const group of content.groups) {
     if (groupId && group.id !== groupId) continue;
     for (const word of group.w) {
-      if (onlyMistakes && (!Object.hasOwn(records, word[0]) || !records[word[0]].needs_retry)) continue;
+      const id = cardId(word);
+      if (onlyMistakes && (!Object.hasOwn(records, id) || !records[id].needs_retry)) continue;
       const question = makePracticeQuestion(word, mode);
       if (question) queue.push({ word, groupId: group.id, groupName: group.n, ...question });
     }

@@ -27,6 +27,7 @@ function backend({ user = admin, member = true, tableError = null, authError = n
         insert(row) { inserted = row; calls.push(["insert", table, row]); return this; },
         single() { single = true; return this; },
         async abortSignal() {
+          if (table === "study_languages") return { error: { code: "PGRST205" }, data: null };
           if (table === "content_editors") return { error: tableError, data: member ? [{ user_id: user?.id }] : [] };
           return { error: null, data: single ? inserted : table === "vocabulary_groups" ? groups : [] };
         }

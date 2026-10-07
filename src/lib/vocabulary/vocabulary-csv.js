@@ -6,6 +6,8 @@ const ALIASES = {
   word: "word", tu: "word", tuvung: "word", term: "word",
   meaning: "meaning", nghia: "meaning", nghiatiengviet: "meaning", definition: "meaning",
   ipa: "ipa", phienam: "ipa", pronunciation: "ipa",
+  reading: "reading", cachdoc: "reading", romanization: "romanization", latin: "romanization",
+  clozetext: "cloze_text", caudientu: "cloze_text", clozeanswer: "cloze_answer", dapandientu: "cloze_answer",
   example: "example", vidu: "example", sentence: "example"
 };
 const headerName = value => ALIASES[value.trim().toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/đ/g, "d").replace(/[\s_-]/g, "")];

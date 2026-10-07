@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "Business English: từ vựng và đọc hiểu",
-  description: "Từ vựng công việc, bài đọc và tiến độ học tiếng Anh."
+  title: "Language Study: từ vựng và đọc hiểu",
+  description: "Học từ vựng tiếng Anh, tiếng Hàn, luyện gõ và ôn tập ngắt quãng."
 };
 
 export default function RootLayout({ children }) {
