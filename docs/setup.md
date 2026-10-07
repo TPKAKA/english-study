@@ -305,7 +305,28 @@ trong form sửa, tránh làm mất liên kết tiến độ. Có thể sửa ng
 nhóm và thứ tự. ID nhóm/bài đọc mới được sinh tự động. Khi cần thay một từ,
 xóa và thêm từ khác; tiến độ cũ không chuyển sang từ mới.
 
-IPA dùng cách phát âm Anh-Anh; IPA cụm từ được ghép từ các từ thành phần,
+### Gợi ý IPA
+
+Trong form thêm/sửa từ, nhập từ rồi bấm **Tra IPA**, chọn phiên âm và bấm
+**Áp dụng IPA** (hoặc **Thay IPA** khi đã có phiên âm). Có thể sửa thủ công trước
+khi lưu. Đổi từ trong khi đang tra sẽ bỏ kết quả của từ cũ.
+
+Trong import, bấm **Xem trước** rồi **Gợi ý IPA**. Chỉ tra thẻ thêm/cập nhật còn
+thiếu IPA, không tra thẻ bỏ qua hoặc thay IPA đã có trong file/database.
+Chọn phiên âm từng dòng; **Áp dụng gợi ý** cập nhật bản xem trước, chưa ghi database.
+**Import thẻ** lưu bản xem trước và các gợi ý đã chọn. Dòng không chọn giữ nguyên.
+Tra theo từng lượt tối đa 20 từ; có thể dừng, đổi file hoặc thử lại lượt lỗi.
+
+Không cần biến môi trường, API key hoặc migration mới cho tính năng gợi ý.
+API `/api/admin/ipa` dùng cookie HttpOnly, CSRF, email admin và grant editor như CRUD.
+Server chỉ gửi từ cần tra đến [Dictionary API](https://dictionaryapi.dev/), không gửi
+email, cookie, token hoặc key Supabase. Các từ mẫu có thể dùng bộ IPA có sẵn.
+Gợi ý có nhãn UK/US khi nhận diện được từ audio đi kèm; nếu không, ghi rõ chưa rõ giọng.
+Từ điển có thể thiếu cụm từ hoặc tạm ngừng hoạt động; vẫn nhập/lưu IPA thủ công được.
+Không tự ghép phiên âm từ các từ khác cho một cụm từ mới. Cache có giới hạn,
+lưu trong bộ nhớ server, không lưu kết quả gợi ý vào database cho đến khi xác nhận.
+
+IPA của bộ từ mẫu dùng cách phát âm Anh-Anh; IPA cụm từ được ghép từ các từ thành phần,
 trọng âm thực tế có thể thay đổi theo ngữ cảnh. Tham khảo
 [ký hiệu phát âm Oxford](https://www.oxfordlearnersdictionaries.com/us/about/english/pronunciation_english)
 và [reschedule](https://www.oxfordlearnersdictionaries.com/definition/english/reschedule).

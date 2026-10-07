@@ -6,6 +6,7 @@ import { createAuthHandlers } from "../src/lib/auth/auth-server.js";
 import { sessionNames, SESSION_MAX_AGE, withCookieSession, sessionJson, readJson, requestOrigin } from "../src/lib/auth/session-server.js";
 import { createProgressHandlers } from "../src/lib/study/progress-server.js";
 import { createAdminHandlers } from "../src/lib/admin/admin-server.js";
+import { createIpaHandlers } from "../src/lib/admin/ipa-server.js";
 import { createSupabaseRequestClient } from "../src/lib/supabase/supabase-server.js";
 import { createStudyApiClient } from "../src/lib/api/api-client.js";
 import { authBackend, testEnv, testUser } from "./helpers/auth-backend.js";
@@ -38,6 +39,30 @@ function harness({ https = true } = {}) {
     async login() { await authCall(); return authCall({ action: "password", email: testUser.email, password: "test-password-only" }); }
   };
 }
+
+test("IPA lookup requires the existing cookie, CSRF, confirmed admin email and editor grant; it never writes content", async () => {
+  const app = harness();
+  let lookups = 0;
+  const api = createIpaHandlers({ env: testEnv,
+    createClient: (config, token) => createSupabaseRequestClient(config, token, app.backend.fetchRequest),
+    lookup: async words => { lookups++; return words.map(word => ({ word, status: "not-found", candidates: [] })); }
+  });
+  const call = (body = { words: ["hello"] }, headers = {}) => withCookieSession(app.request("/api/admin/ipa", body, headers), internal => api.POST(internal), app.dependencies);
+  assert.equal((await call()).status, 401); await app.login();
+  for (const headers of [{ "X-CSRF-Token": "" }, { Origin: "https://evil.example.com" }]) assert.equal((await call(undefined, headers)).status, 403);
+  app.backend.tables.content_editors = [];
+  assert.equal((await call()).status, 403); assert.equal(lookups, 0);
+  app.backend.tables.content_editors = [{ user_id: testUser.id }];
+  for (const words of [[], Array(21).fill("hello"), ["https://evil.example.com"]]) assert.equal((await call({ words })).status, 400);
+  const result = await call();
+  assert.equal(result.status, 200); assert.equal(result.headers.get("cache-control"), "private, no-store"); assert.equal(result.headers.get("vary"), "Cookie");
+  assert.deepEqual(await result.json(), { ok: true, results: [{ word: "hello", status: "not-found", candidates: [] }] });
+  assert.equal(lookups, 1);
+  assert.ok(!app.backend.calls.some(call => call.url.pathname.startsWith("/rest/") && call.method !== "GET"));
+  const wrongEmail = createIpaHandlers({ env: { ...testEnv, ADMIN_EMAIL: "other@example.com" }, createClient: (config, token) => createSupabaseRequestClient(config, token, app.backend.fetchRequest), lookup: () => { lookups++; } });
+  assert.equal((await withCookieSession(app.request("/api/admin/ipa", { words: ["hello"] }), internal => wrongEmail.POST(internal), app.dependencies)).status, 403);
+  assert.equal(lookups, 1);
+});
 
 test("server login issues 30-day HttpOnly host-only cookies; response JSON contains no credentials", async () => {
   const app = harness();

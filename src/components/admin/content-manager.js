@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Pencil, Plus, RefreshCw, Save, Search, Trash2, Upload, UserRound, X } from "lucide-react";
 import Modal from "../ui/content-dialog.js";
 import VocabularyImporter from "./vocabulary-importer.js";
+import IpaSuggestion from "./ipa-suggestion.js";
 
 const TYPES = { words: "Từ vựng", groups: "Nhóm từ", readings: "Bài đọc" };
 const PAGE_SIZE = 20;
@@ -19,7 +20,7 @@ function Field({ label, multiline = false, wide = false, ...props }) {
   </label>;
 }
 
-function Editor({ entity, row, catalog, initialGroup, busy, onSave, onClose }) {
+function Editor({ entity, row, catalog, initialGroup, busy, onSave, onClose, onSuggestIpa }) {
   const [draft, setDraft] = useState(() => {
     if (row) return entity === "readings" ? { ...row, questions: catalog.questions.filter(question => question.reading_id === row.id)
       .map(question => ({ ...question, options: question.options.slice() })) } : { ...row };
@@ -73,8 +74,9 @@ function Editor({ entity, row, catalog, initialGroup, busy, onSave, onClose }) {
             <option value="" disabled>Chọn nhóm</option>{catalog.groups.map(group => <option key={group.id} value={group.id}>{group.title}</option>)}
           </select></label>
           <Field label="Nghĩa tiếng Việt" required maxLength={2000} value={draft.meaning} onChange={change("meaning")} wide autoFocus={!!row} />
-          <Field label="Phiên âm IPA (UK)" maxLength={500} placeholder="/…/" value={draft.ipa ?? ""} onChange={change("ipa")} />
+          <Field label="Phiên âm IPA" maxLength={500} placeholder="/…/" value={draft.ipa ?? ""} onChange={change("ipa")} />
           <Field label="Thứ tự" type="number" min={0} max={2147483647} step={1} required value={draft.sort_order} onChange={change("sort_order")} />
+          <IpaSuggestion word={draft.word} value={draft.ipa} disabled={locked} onSuggest={onSuggestIpa} onApply={ipa => set("ipa", ipa)} />
           <Field label="Ví dụ" multiline rows={3} maxLength={5000} value={draft.example} onChange={change("example")} wide />
         </> : <>
           <Field label={entity === "groups" ? "Tên nhóm" : "Tiêu đề"} required maxLength={200} value={draft.title} onChange={change("title")} wide autoFocus />
@@ -133,7 +135,7 @@ function DeleteDialog({ entity, row, questionCount, busy, onDelete, onClose }) {
   </Modal>;
 }
 
-export default function ContentManager({ data, initialAction, onSave, onReload, onRefreshPermission, onSignIn }) {
+export default function ContentManager({ data, initialAction, onSave, onReload, onRefreshPermission, onSignIn, onSuggestIpa }) {
   const [entity, setEntity] = useState("words");
   const [search, setSearch] = useState("");
   const [groupFilter, setGroupFilter] = useState(initialAction?.groupId || "");
@@ -194,8 +196,8 @@ export default function ContentManager({ data, initialAction, onSave, onReload, 
     <div className="management-pagination"><span>{filtered.length} {entity === "words" ? "từ" : entity === "groups" ? "nhóm" : "bài đọc"}</span><div className="navigation-tools">
       <Tool label="Trang trước" disabled={position === 0} onClick={() => setPage(position - 1)}><ArrowLeft /></Tool><span className="deck-counter">{position + 1} / {pages}</span><Tool label="Trang sau" disabled={position === pages - 1} onClick={() => setPage(position + 1)}><ArrowRight /></Tool>
     </div></div>
-    {dialog?.mode === "edit" && <Editor entity={entity} row={dialog.row} catalog={catalog} initialGroup={groupFilter} busy={adminBusy} onSave={save} onClose={() => setDialog(null)} />}
+    {dialog?.mode === "edit" && <Editor entity={entity} row={dialog.row} catalog={catalog} initialGroup={groupFilter} busy={adminBusy} onSave={save} onSuggestIpa={onSuggestIpa} onClose={() => setDialog(null)} />}
     {dialog?.mode === "delete" && <DeleteDialog entity={entity} row={dialog.row} questionCount={dialog.questionCount} busy={adminBusy} onDelete={save} onClose={() => setDialog(null)} />}
-    {dialog?.mode === "import" && <VocabularyImporter catalog={catalog} initialGroup={groupFilter} busy={adminBusy} onSave={save} onClose={() => setDialog(null)} />}
+    {dialog?.mode === "import" && <VocabularyImporter catalog={catalog} initialGroup={groupFilter} busy={adminBusy} onSave={save} onSuggestIpa={onSuggestIpa} onClose={() => setDialog(null)} />}
   </div>;
 }

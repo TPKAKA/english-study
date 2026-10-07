@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, BookOpen, Check, CheckCheck, ChevronDown, Cloud,
 import { STUDY_CONTENT } from "../../data/study-content.js";
 import { createStudySync } from "../../lib/study/study-sync.js";
 import { getStudyApiClient } from "../../lib/api/api-client.js";
+import { requestIpaSuggestions } from "../../lib/admin/admin-browser.js";
 import { gradeReading } from "../../lib/study/quiz.js";
 import ContentManager from "../admin/content-manager.js";
 import DefaultPasswordSetup from "../auth/default-password-setup.js";
@@ -280,7 +281,7 @@ export default function StudyApp({ config }) {
     </nav>
     {data.contentStatus && <p className="content-status muted" role="status">{data.contentStatus}</p>}
     <section aria-label={managing ? "Quản lý nội dung" : reading ? reading.t : "Từ vựng"}>
-      {managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
+      {managing ? <ContentManager key={`${scope}:${manageIntent?.request || 0}`} data={data} initialAction={manageIntent} onSignIn={openAccount} onSave={change => sync.current.editContent(change)} onSuggestIpa={words => requestIpaSuggestions(getStudyApiClient(config), words)} onReload={() => sync.current?.reloadContent()} onRefreshPermission={() => sync.current?.refreshPermission()} /> : reading ? <ReadingQuiz key={`${reading.id}:${scope}:${contentVersion}`} reading={reading} onSave={(id, answers) => sync.current?.saveAttempt(id, answers) || false} /> : <>
         <div className="vocabulary-toolbar"><button type="button" onClick={() => manageCards("edit")} disabled={data.adminBusy}><Plus />Thêm thẻ</button>
           <button type="button" onClick={() => manageCards("import")} disabled={data.adminBusy}><Upload />Import thẻ</button></div>
         {group ? <><nav className="group-tabs" aria-label="Nhóm từ vựng">{data.content.groups.map(item => <button type="button" key={item.id} className={group.id === item.id ? "active" : ""} aria-pressed={group.id === item.id} onClick={() => setGroupId(item.id)}>{item.n}</button>)}</nav>

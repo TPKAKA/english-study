@@ -1,7 +1,7 @@
 # Business English
 
 Website học từ vựng và đọc hiểu, dùng Next.js App Router, React và Supabase.
-Có IPA, phát âm, quản lý/import thẻ, đồng bộ tiến độ và đăng nhập bằng cookie HttpOnly.
+Có IPA, gợi ý phiên âm khi thêm/import, phát âm, quản lý thẻ, đồng bộ tiến độ và đăng nhập bằng cookie HttpOnly.
 
 ## Cấu trúc thư mục
 
@@ -25,7 +25,7 @@ english-study/
       content/                # Catalog, content validation and updates
       study/                  # Sync, progress, scoring and pronunciation
       supabase/               # Environment config and server SDK client
-      vocabulary/             # CSV, XLSX and batch import
+      vocabulary/             # CSV, XLSX, batch import and IPA suggestions
     data/
       study-content.js        # Starter lessons and offline fallback
   public/

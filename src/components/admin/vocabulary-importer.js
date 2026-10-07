@@ -1,14 +1,15 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { Download, Eye, Upload } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Download, Eye, LoaderCircle, Search, Square, Upload } from "lucide-react";
 import ContentDialog from "../ui/content-dialog.js";
 import { decodeVocabularyFile, parseVocabularyCsv } from "../../lib/vocabulary/vocabulary-csv.js";
 import { IMPORT_BYTES, prepareVocabularyImport } from "../../lib/vocabulary/vocabulary-import.js";
+import { applyImportIpa, IPA_BATCH_SIZE, ipaCandidateLabel, missingImportIpa } from "../../lib/vocabulary/ipa-review.js";
 
 const STATUS = { create: "Thêm mới", update: "Cập nhật", skip: "Bỏ qua" };
 
-export default function VocabularyImporter({ catalog, initialGroup, busy, onSave, onClose }) {
+export default function VocabularyImporter({ catalog, initialGroup, busy, onSave, onClose, onSuggestIpa }) {
   const [groupId, setGroupId] = useState(() => catalog.groups.some(group => group.id === initialGroup) ? initialGroup : catalog.groups[0]?.id || "");
   const [source, setSource] = useState("");
   const [fileName, setFileName] = useState("");
@@ -18,6 +19,16 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
   const [rows, setRows] = useState(null);
   const [error, setError] = useState("");
   const [working, setWorking] = useState(false);
+  const [suggestions, setSuggestions] = useState({});
+  const [choices, setChoices] = useState({});
+  const [looking, setLooking] = useState(false);
+  const [ipaMessage, setIpaMessage] = useState("");
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const lookupVersion = useRef(0);
+  useEffect(() => {
+    setLooking(false); setSuggestions({}); setChoices({}); setIpaMessage("");
+    return () => { lookupVersion.current++; };
+  }, [catalog]);
   const fileInput = useRef(null);
   const locked = busy || working;
   const preview = useMemo(() => {
@@ -25,12 +36,51 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
     try { return prepareVocabularyImport({ rows, groupId, mode }, catalog); }
     catch (error) { return { error: error.message }; }
   }, [rows, groupId, mode, catalog]);
+  const missing = useMemo(() => missingImportIpa(preview, catalog), [preview, catalog]);
+  const missingKeys = new Set(missing.map(word => word.trim().toLowerCase()));
+  const selectedCount = Object.entries(choices).filter(([word, choice]) => missingKeys.has(word) && choice !== "" && suggestions[word]?.candidates?.[Number(choice)]).length;
+  const approvedIpa = () => new Map(Object.entries(choices).filter(([, choice]) => choice !== "").map(([word, choice]) => [word, suggestions[word]?.candidates?.[Number(choice)]?.ipa]));
 
-  function invalidate() { setRows(null); setError(""); }
+  function resetSuggestions() {
+    lookupVersion.current++;
+    setLooking(false); setSuggestions({}); setChoices({}); setIpaMessage("");
+  }
+  function invalidate() { resetSuggestions(); setRows(null); setError(""); }
   function inspect() {
+    resetSuggestions();
     setError("");
     try { setRows(parseVocabularyCsv(source, { header, delimiter })); }
     catch (error) { setRows(null); setError(error.message); }
+  }
+  async function suggestIpa() {
+    if (locked || looking) return;
+    const words = missing.filter(word => suggestions[word.trim().toLowerCase()]?.status !== "found");
+    if (!words.length) return;
+    const version = ++lookupVersion.current;
+    setLooking(true); setError(""); setIpaMessage(""); setProgress({ done: 0, total: words.length });
+    try {
+      for (let offset = 0; offset < words.length; offset += IPA_BATCH_SIZE) {
+        const batch = words.slice(offset, offset + IPA_BATCH_SIZE);
+        const response = await onSuggestIpa(batch);
+        if (version !== lookupVersion.current) return;
+        if (!response.ok) { setError(response.error); return; }
+        const results = new Map((response.results || []).map(result => [result.word.trim().toLowerCase(), result]));
+        setSuggestions(previous => ({ ...previous, ...Object.fromEntries(batch.map(word => {
+          const key = word.trim().toLowerCase();
+          return [key, results.get(key) || { status: "unavailable", candidates: [] }];
+        })) }));
+        setProgress({ done: offset + batch.length, total: words.length });
+      }
+      setIpaMessage("Đã tra xong IPA.");
+    } catch {
+      if (version === lookupVersion.current) setError("Chưa tra được IPA. Hãy thử lại hoặc nhập phiên âm trong file.");
+    } finally { if (version === lookupVersion.current) setLooking(false); }
+  }
+  function applySuggestions() {
+    if (locked || looking || !selectedCount) return;
+    const next = applyImportIpa(rows, preview, catalog, approvedIpa());
+    setIpaMessage(`Đã áp dụng ${next.filter((row, index) => row !== rows[index]).length} phiên âm vào bản xem trước.`);
+    setRows(next); setChoices({});
   }
   async function readFile(event) {
     const file = event.target.files?.[0];
@@ -59,11 +109,11 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
   }
   async function submit(event) {
     event.preventDefault();
-    if (locked || !preview || preview.error) return;
+    if (locked || looking || !preview || preview.error) return;
     setWorking(true);
     setError("");
     try {
-      const result = await onSave({ entity: "words", action: "import", rows, groupId, mode });
+      const result = await onSave({ entity: "words", action: "import", rows: applyImportIpa(rows, preview, catalog, approvedIpa()), groupId, mode });
       if (result.ok) onClose(); else setError(result.error);
     } catch { setError("Chưa xác nhận được kết quả import. Hãy tải lại danh sách trước khi thử lại."); }
     finally { setWorking(false); }
@@ -72,10 +122,10 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
   return <ContentDialog title="Import thẻ" busy={locked} onClose={onClose}>
     <form onSubmit={submit}>
       <fieldset className="editor-fields" disabled={locked}>
-        <label className="editor-field"><span>Nhóm từ</span><select required value={groupId} onChange={event => setGroupId(event.target.value)}>
+        <label className="editor-field"><span>Nhóm từ</span><select required value={groupId} onChange={event => { resetSuggestions(); setGroupId(event.target.value); }}>
           <option value="" disabled>Chọn nhóm</option>{catalog.groups.map(group => <option key={group.id} value={group.id}>{group.title}</option>)}
         </select></label>
-        <label className="editor-field"><span>Từ đã tồn tại</span><select value={mode} onChange={event => setMode(event.target.value)}>
+        <label className="editor-field"><span>Từ đã tồn tại</span><select value={mode} onChange={event => { resetSuggestions(); setMode(event.target.value); }}>
           <option value="skip">Bỏ qua</option><option value="update">Cập nhật</option>
         </select></label>
         <div className="import-file-tools field-wide">
@@ -95,16 +145,37 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
       </fieldset>
       {preview?.prepared && <section className="import-preview" aria-label="Thẻ sẽ import">
         <p className="import-counts" role="status">{preview.counts.create} thêm mới · {preview.counts.update} cập nhật · {preview.counts.skip} bỏ qua</p>
+        <div className="import-ipa-tools">
+          <button type="button" disabled={locked || looking || !missing.some(word => suggestions[word.trim().toLowerCase()]?.status !== "found")} onClick={() => void suggestIpa()}>
+            {looking ? <LoaderCircle className="spinning" /> : <Search />}Gợi ý IPA ({missing.length})
+          </button>
+          {looking && <button type="button" onClick={() => { lookupVersion.current++; setLooking(false); setIpaMessage("Đã dừng tra IPA."); }}><Square />Dừng tra</button>}
+          <button type="button" disabled={locked || looking || !selectedCount} onClick={applySuggestions}><Check />Áp dụng {selectedCount} gợi ý</button>
+        </div>
+        <p className="ipa-status muted" role="status">{looking ? `Đang tra IPA: ${progress.done} / ${progress.total}` : ipaMessage}</p>
         <div className="import-table-scroll" tabIndex={0} aria-label="Danh sách thẻ xem trước"><table>
           <thead><tr><th>Từ / IPA</th><th>Nghĩa</th><th>Trạng thái</th></tr></thead>
-          <tbody>{preview.prepared.map(({ row, status }) => <tr key={row.word}>
-            <td><strong>{row.word}</strong><span className="ipa-text">{row.ipa}</span></td><td>{row.meaning}</td><td>{STATUS[status]}</td>
-          </tr>)}</tbody>
+          <tbody>{preview.prepared.map(({ row, status }) => {
+            const key = row.word.trim().toLowerCase();
+            const result = missingKeys.has(key) ? suggestions[key] : null;
+            return <tr key={row.word}>
+              <td><strong>{row.word}</strong><span className="ipa-text">{row.ipa}</span>
+                {result?.candidates?.length > 0 && <label className="editor-field import-ipa-choice"><span>Gợi ý IPA</span>
+                  <select aria-label={`Gợi ý IPA: ${row.word}`} disabled={locked || looking} value={Object.hasOwn(choices, key) ? choices[key] : ""} onChange={event => setChoices(previous => ({ ...previous, [key]: event.target.value }))}>
+                    <option value="">Không dùng gợi ý</option>{result.candidates.map((candidate, index) => <option key={index} value={index}>{ipaCandidateLabel(candidate)}</option>)}
+                  </select>
+                </label>}
+                {result?.status === "not-found" && <small className="muted">Chưa có phiên âm</small>}
+                {result?.status === "unavailable" && <small className="error-text">Chưa tra được</small>}
+              </td><td>{row.meaning}</td><td>{STATUS[status]}</td>
+            </tr>;
+          })}</tbody>
         </table></div>
+        {Object.values(suggestions).some(result => result.status === "found") && <small className="muted ipa-source"><a href="https://dictionaryapi.dev/" target="_blank" rel="noreferrer">Dictionary API</a> · Bộ từ mẫu UK</small>}
       </section>}
       <p className="editor-error error-text" role="alert">{error || preview?.error}</p>
       <footer className="dialog-actions"><button type="button" disabled={locked} onClick={onClose}>Hủy</button>
-        <button type="submit" className="primary-button" disabled={locked || !preview?.prepared}><Upload />{locked ? "Đang xử lý…" : "Import thẻ"}</button>
+        <button type="submit" className="primary-button" disabled={locked || looking || !preview?.prepared}><Upload />{locked ? "Đang xử lý…" : "Import thẻ"}</button>
       </footer>
     </form>
   </ContentDialog>;

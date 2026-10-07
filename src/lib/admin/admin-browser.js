@@ -15,3 +15,7 @@ export function requestAdmin(client, change, fetchRequest = globalThis.fetch) {
 export function requestDefaultPassword(client, apply = false, fetchRequest = globalThis.fetch) {
   return requestAuthenticated(client, "/api/admin/password", apply ? { confirm: true } : undefined, fetchRequest);
 }
+
+export function requestIpaSuggestions(client, words, fetchRequest = globalThis.fetch) {
+  return requestAuthenticated(client, "/api/admin/ipa", { words }, fetchRequest);
+}

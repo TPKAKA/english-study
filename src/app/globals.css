@@ -174,6 +174,16 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
 .import-table-scroll th { position: sticky; top: 0; background: var(--surface); }
 .import-table-scroll td .ipa-text { display: block; }
 .import-table-scroll th:last-child { width: 95px; }
+.ipa-lookup { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.ipa-lookup > small, .ipa-status { width: 100%; margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.ipa-choice-row { display: flex; align-items: end; gap: 8px; flex: 1 1 320px; min-width: 0; flex-wrap: wrap; }
+.ipa-choice-row > label { flex: 1 1 180px; }
+.ipa-lookup a, .ipa-source a { color: var(--accent); }
+.import-ipa-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.import-preview > .ipa-status { margin: 8px 0; min-height: 21px; }
+.import-ipa-choice { margin-top: 8px; font-size: 12px; }
+.import-ipa-choice select { font-size: 13px; }
+.ipa-source { display: block; margin-top: 8px; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
 @media (max-width: 480px) {
   main { padding-inline: 16px; padding-top: 18px; }
@@ -188,4 +198,7 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); width
   .content-dialog { padding: 16px; }
   .content-list > li { gap: 10px; }
   .content-row-text { gap: 3px 8px; }
+  .import-table-scroll th:last-child { width: 65px; }
+  .import-table-scroll th, .import-table-scroll td { padding: 6px 4px; }
+  .import-table-scroll th:first-child { width: 48%; }
 }
