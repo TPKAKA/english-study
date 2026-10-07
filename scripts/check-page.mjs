@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { decodeVocabularyFile, parseVocabularyCsv } from "../lib/vocabulary-csv.js";
-import { vocabularyXlsxToCsv } from "../lib/vocabulary-xlsx.js";
+import { decodeVocabularyFile, parseVocabularyCsv } from "../src/lib/vocabulary/vocabulary-csv.js";
+import { vocabularyXlsxToCsv } from "../src/lib/vocabulary/vocabulary-xlsx.js";
 
 const origin = process.env.TEST_URL || "http://localhost:3000";
 const response = await fetch(origin, { signal: AbortSignal.timeout(30000) });
@@ -67,3 +67,18 @@ for (const path of ["/api/admin", "/api/admin/password"]) for (const method of [
   assert.equal((await admin.json()).canEdit, false);
 }
 console.log("PASS: admin CRUD and default password endpoints reject anonymous requests");
+
+const session = await fetch(new URL("/api/auth/session", origin));
+assert.equal(session.status, 200);
+assert.match(session.headers.get("cache-control"), /no-store/);
+const sessionData = await session.json();
+assert.equal(sessionData.user, null);
+assert.match(sessionData.csrfToken, /^[a-f0-9]{64}$/);
+assert.ok(!/access_token|refresh_token/.test(JSON.stringify(sessionData)));
+assert.ok(session.headers.getSetCookie().every(value => value.includes("HttpOnly")));
+const forged = await fetch(new URL("/api/auth/session", origin), {
+  method: "POST", headers: { "Content-Type": "application/json", Origin: "https://evil.example.com" },
+  body: JSON.stringify({ action: "password", email: "not-a-real-account@example.com", password: "not-a-real-password" })
+});
+assert.equal(forged.status, 403);
+console.log("PASS: anonymous auth bootstrap is private, token-free and HttpOnly; cross-origin login is blocked");

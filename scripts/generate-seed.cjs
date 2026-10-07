@@ -4,7 +4,7 @@ const { pathToFileURL } = require("node:url");
 
 const root = path.resolve(__dirname, "..");
 async function main() {
-const { STUDY_CONTENT } = await import(pathToFileURL(path.join(root, "study-content.js")).href);
+const { STUDY_CONTENT } = await import(pathToFileURL(path.join(root, "src", "data", "study-content.js")).href);
 const { groups, readings } = STUDY_CONTENT;
 const quote = value => "'" + String(value).replace(/'/g, "''") + "'";
 const insert = (table, columns, rows, conflict) =>
@@ -13,7 +13,7 @@ const insert = (table, columns, rows, conflict) =>
   "\non conflict (" + conflict + ") do nothing;\n";
 
 const statements = [
-  "-- Generated from study-content.js by node scripts/generate-seed.cjs.\n-- Existing lesson edits are preserved when this script is rerun.\nbegin;\n",
+  "-- Generated from src/data/study-content.js by node scripts/generate-seed.cjs.\n-- Existing lesson edits are preserved when this script is rerun.\nbegin;\n",
   insert("vocabulary_groups", "id, title, sort_order", groups.map((group, index) => [quote(group.id), quote(group.n), index]), "id"),
   insert("vocabulary_words", "word, group_id, meaning, example, ipa, sort_order", groups.flatMap(group =>
     group.w.map((word, index) => [quote(word[0]), quote(group.id), quote(word[1]), quote(word[2]), quote(word[3]), index])
@@ -30,7 +30,7 @@ const statements = [
 fs.writeFileSync(path.join(root, "supabase", "seed.sql"), statements.join("\n"));
 const pronunciations = groups.flatMap(group => group.w.map(word => [quote(word[0]), quote(word[3])]));
 fs.writeFileSync(path.join(root, "supabase", "ipa-backfill.sql"), [
-  "-- Generated from study-content.js. Run after the CRUD migration.\n-- Only fills blank IPA for existing starter words; preserves custom pronunciations.\nbegin;",
+  "-- Generated from src/data/study-content.js. Run after the CRUD migration.\n-- Only fills blank IPA for existing starter words; preserves custom pronunciations.\nbegin;",
   "update public.vocabulary_words as words set ipa = starter.ipa\nfrom (values\n" +
     pronunciations.map(row => "  (" + row.join(", ") + ")").join(",\n") +
     "\n) as starter(word, ipa)\nwhere words.word = starter.word and words.ipa = '';",

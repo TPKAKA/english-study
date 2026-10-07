@@ -1,4 +1,4 @@
--- Generated from study-content.js by node scripts/generate-seed.cjs.
+-- Generated from src/data/study-content.js by node scripts/generate-seed.cjs.
 -- Existing lesson edits are preserved when this script is rerun.
 begin;
 

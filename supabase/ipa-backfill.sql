@@ -1,4 +1,4 @@
--- Generated from study-content.js. Run after the CRUD migration.
+-- Generated from src/data/study-content.js. Run after the CRUD migration.
 -- Only fills blank IPA for existing starter words; preserves custom pronunciations.
 begin;
 

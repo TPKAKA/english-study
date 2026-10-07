@@ -2,7 +2,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 
 async function main() {
-  const { readSupabaseConfig } = await import(pathToFileURL(path.join(__dirname, "..", "lib", "supabase-config.js")).href);
+  const { readSupabaseConfig } = await import(pathToFileURL(path.join(__dirname, "..", "src", "lib", "supabase", "supabase-config.js")).href);
   const config = readSupabaseConfig(process.env);
   const tables = ["vocabulary_groups", "vocabulary_words", "reading_passages", "reading_questions"];
   for (const table of tables) {

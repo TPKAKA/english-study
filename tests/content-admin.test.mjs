@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { contentError, fetchCatalog, mutateContent, toStudyContent, validateContent } from "../lib/content-admin.js";
-import { STUDY_CONTENT } from "../study-content.js";
+import { contentError, fetchCatalog, mutateContent, toStudyContent, validateContent } from "../src/lib/content/content-admin.js";
+import { STUDY_CONTENT } from "../src/data/study-content.js";
 
 const catalog = { groups: [{ id: "group", title: "Group", sort_order: 0 }], words: [], readings: [], questions: [] };
 const word = { word: "new word", group_id: "group", meaning: "nghĩa", ipa: "/njuː wɜːd/", example: "An example.", sort_order: 0 };
