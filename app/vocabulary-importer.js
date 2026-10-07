@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import { Download, Eye, Upload } from "lucide-react";
 import ContentDialog from "./content-dialog.js";
-import { parseVocabularyCsv } from "../lib/vocabulary-csv.js";
+import { decodeVocabularyFile, parseVocabularyCsv } from "../lib/vocabulary-csv.js";
 import { IMPORT_BYTES, prepareVocabularyImport } from "../lib/vocabulary-import.js";
 
 const STATUS = { create: "Thêm mới", update: "Cập nhật", skip: "Bỏ qua" };
@@ -37,11 +37,13 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
     event.target.value = "";
     if (!file || locked) return;
     invalidate();
+    setSource("");
+    setFileName("");
     if (file.size > IMPORT_BYTES) { setError("File tối đa 1 MB."); return; }
-    if (!/\.(csv|tsv)$/i.test(file.name)) { setError("Chọn file .csv hoặc .tsv UTF-8."); return; }
+    if (!/\.(csv|tsv)$/i.test(file.name)) { setError("Chọn file .csv hoặc .tsv."); return; }
     setWorking(true);
-    try { setSource(await file.text()); setFileName(file.name); }
-    catch { setError("Không đọc được file. Hãy thử lại."); }
+    try { setSource(decodeVocabularyFile(await file.arrayBuffer())); setFileName(file.name); }
+    catch { setError("Không đọc được file. Chọn CSV/TSV UTF-8 hoặc Unicode (UTF-16) có BOM."); }
     finally { setWorking(false); }
   }
   async function submit(event) {
@@ -68,7 +70,7 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
         <div className="import-file-tools field-wide">
           <input ref={fileInput} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" hidden onChange={event => void readFile(event)} />
           <button type="button" onClick={() => fileInput.current.click()}><Upload />Chọn file</button>
-          <a className="template-link" href="/templates/vocabulary.csv" download><Download />Mẫu CSV</a>
+          <a className="template-link" href="/api/vocabulary-template" download="vocabulary-excel.csv"><Download />Mẫu CSV</a>
           {fileName && <span className="muted">{fileName}</span>}
         </div>
         <label className="editor-field field-wide"><span>Dữ liệu CSV / TSV</span><textarea rows={6} value={source}

@@ -223,16 +223,24 @@ bên dưới thẻ hiện tại, cạnh nút nghe, để mở form sửa hoặc 
 ### Import thẻ
 
 Chạy migration import ở trên trước khi sử dụng. Chọn file `.csv`/`.tsv` UTF-8
+hoặc Unicode UTF-16 có BOM
 hoặc dán dữ liệu, chọn nhóm và bấm **Xem trước**, rồi **Import thẻ**.
 Tối đa 500 thẻ và 1 MB mỗi lần; không hỗ trợ file Excel `.xlsx` hoặc gói Anki.
 Có [file mẫu](public/templates/vocabulary.csv) tải được ngay trong form.
-Mẫu có UTF-8 BOM và dòng đầu `sep=,` để Excel nhận diện mã hóa và dấu tách cột.
-Bộ import bỏ qua dòng khai báo này; vẫn nhận CSV/TSV thông thường không có nó.
+Nút **Mẫu CSV** tải `vocabulary-excel.csv` từ `/api/vocabulary-template`:
+Unicode UTF-16LE có BOM, dòng đầu `sep=,` và xuống dòng CRLF cho Excel trên Windows.
+Một số bản Excel bỏ qua BOM UTF-8 khi có dòng `sep=`, nên mẫu tải cho Excel
+không dùng tổ hợp này. File nguồn ở trên vẫn là CSV UTF-8 có BOM, không có `sep=`.
+Bộ import nhận diện UTF-8/UTF-16LE/UTF-16BE, bỏ qua dòng `sep=` nếu có,
+và vẫn nhận CSV/TSV thông thường. Không đoán mã hóa ANSI để tránh nhập sai dữ liệu.
 Sau khi chỉnh trong Excel, lưu bằng **CSV UTF-8 (Comma delimited) (*.csv)**
 để giữ tiếng Việt và IPA, không dùng CSV mã hóa ANSI.
 Nếu Excel vẫn không tự tách cột, dùng **Data > From Text/CSV**, chọn mã hóa
 **65001: Unicode (UTF-8)** và dấu phân cách **Comma**, bỏ dòng `sep=,` nếu
 nó xuất hiện trong phần xem trước.
+Với mẫu Unicode tải từ website, chọn **1200: Unicode** thay vì UTF-8 khi
+nhập qua **From Text/CSV**. File Excel lưu lại dưới dạng Unicode text phân
+cách bằng tab cũng được import; đổi đuôi `.txt` thành `.tsv` khi chọn file.
 
 ```csv
 word,meaning,ipa,example

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { parseVocabularyCsv } from "../lib/vocabulary-csv.js";
+import { decodeVocabularyFile, parseVocabularyCsv } from "../lib/vocabulary-csv.js";
 
 const origin = process.env.TEST_URL || "http://localhost:3000";
 const response = await fetch(origin, { signal: AbortSignal.timeout(30000) });
@@ -25,18 +25,24 @@ for (const asset of assets) {
 }
 console.log("PASS: all " + assets.size + " referenced Next.js assets load");
 
-const template = await fetch(new URL("/templates/vocabulary.csv", origin));
+const template = await fetch(new URL("/api/vocabulary-template", origin));
 assert.equal(template.status, 200);
+assert.match(template.headers.get("content-type"), /charset=utf-16le/);
+assert.match(template.headers.get("content-disposition"), /vocabulary-excel.csv/);
 const templateBytes = new Uint8Array(await template.arrayBuffer());
-assert.deepEqual([...templateBytes.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
-const templateSource = new TextDecoder().decode(templateBytes);
-assert.match(templateSource, /^sep=,\r?\nword,meaning,ipa,example/);
+assert.deepEqual([...templateBytes.subarray(0, 2)], [0xFF, 0xFE]);
+const templateSource = decodeVocabularyFile(templateBytes);
+assert.match(templateSource, /^sep=,\r\nword,meaning,ipa,example/);
 const templateRows = parseVocabularyCsv(templateSource);
 assert.equal(templateRows.length, 2);
 assert.equal(templateRows[0].meaning, "hợp tác");
 assert.equal(templateRows[0].ipa, "/kəˈlæbəreɪt/");
 assert.equal(templateRows[1].example, "Please check the invoice, then send it to finance.");
-console.log("PASS: Excel-compatible UTF-8 CSV template downloads and parses correctly");
+console.log("PASS: Excel Unicode CSV template downloads and re-imports without losing Vietnamese or IPA");
+const standard = await fetch(new URL("/templates/vocabulary.csv", origin));
+assert.equal(standard.status, 200);
+assert.deepEqual(parseVocabularyCsv(decodeVocabularyFile(await standard.arrayBuffer())), templateRows);
+console.log("PASS: standard UTF-8 CSV stays compatible");
 
 const legacy = await fetch(new URL("/business-english.html", origin), { redirect: "manual", signal: AbortSignal.timeout(10000) });
 assert.equal(legacy.status, 308);

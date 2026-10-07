@@ -1,25 +1,65 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseVocabularyCsv } from "../lib/vocabulary-csv.js";
+import { decodeVocabularyFile, parseVocabularyCsv } from "../lib/vocabulary-csv.js";
 import { importVocabulary, prepareVocabularyImport } from "../lib/vocabulary-import.js";
+import { GET as downloadTemplate } from "../app/api/vocabulary-template/route.js";
 
 const catalog = { groups: [{ id: "g", title: "Group" }, { id: "other", title: "Other" }], words: [
   { word: "Agenda", group_id: "g", meaning: "Old meaning", ipa: "/old/", example: "Old example.", sort_order: 4 }
 ] };
 const change = (rows, extra = {}) => ({ rows, groupId: "g", mode: "skip", ...extra });
 
-test("downloadable CSV template identifies UTF-8 and the Excel separator and imports intact", () => {
+test("standard CSV template identifies UTF-8 without Excel metadata and imports intact", () => {
   const file = readFileSync(new URL("../public/templates/vocabulary.csv", import.meta.url));
   assert.deepEqual([...file.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
   const source = file.toString("utf8");
-  assert.match(source, /^\uFEFFsep=,\r?\nword,meaning,ipa,example\r?\n/);
+  assert.match(source, /^\uFEFFword,meaning,ipa,example\r?\n/);
   const rows = parseVocabularyCsv(source);
   assert.deepEqual(rows, [
     { word: "collaborate", meaning: "hợp tác", ipa: "/kəˈlæbəreɪt/", example: "We collaborate with the design team." },
     { word: "invoice", meaning: "hóa đơn", ipa: "/ˈɪnvɔɪs/", example: "Please check the invoice, then send it to finance." }
   ]);
   assert.equal(prepareVocabularyImport(change(rows), catalog).counts.create, 2);
+});
+
+test("Excel download uses UTF-16LE BOM and CRLF with a separator hint, and re-imports identically", async () => {
+  const response = await downloadTemplate();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get("content-type"), /charset=utf-16le/);
+  assert.match(response.headers.get("content-disposition"), /attachment; filename="vocabulary-excel.csv"/);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 2)], [0xFF, 0xFE]);
+  const source = decodeVocabularyFile(bytes);
+  assert.match(source, /^sep=,\r\nword,meaning,ipa,example\r\n/);
+  assert.ok(!source.replace(/\r\n/g, "").includes("\n"));
+  const standard = readFileSync(new URL("../public/templates/vocabulary.csv", import.meta.url));
+  assert.deepEqual(parseVocabularyCsv(source), parseVocabularyCsv(decodeVocabularyFile(standard)));
+});
+
+test("file decoding accepts UTF-8 with/without BOM, UTF-16LE, UTF-16BE and Excel Unicode TSV", () => {
+  const csv = 'word,meaning,ipa,example\r\nhello,xin chào,/həˈləʊ/,"Say hello, then continue."';
+  const encodings = [Buffer.from(csv, "utf8"), Buffer.from(`\uFEFF${csv}`, "utf8"),
+    Buffer.from(`\uFEFF${csv}`, "utf16le"), Buffer.from(`\uFEFF${csv}`, "utf16le").swap16()];
+  for (const bytes of encodings) {
+    assert.equal(decodeVocabularyFile(bytes), csv);
+    assert.equal(decodeVocabularyFile(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)), csv);
+    assert.deepEqual(parseVocabularyCsv(decodeVocabularyFile(bytes)), [
+      { word: "hello", meaning: "xin chào", ipa: "/həˈləʊ/", example: "Say hello, then continue." }
+    ]);
+  }
+  const tsv = Buffer.from("\uFEFFword\tmeaning\tipa\r\nhello\txin chào\t/həˈləʊ/", "utf16le");
+  assert.deepEqual(parseVocabularyCsv(decodeVocabularyFile(tsv)), [{ word: "hello", meaning: "xin chào", ipa: "/həˈləʊ/" }]);
+});
+
+test("file decoding rejects corrupt Unicode, missing UTF-16 BOM, ANSI and oversized files", () => {
+  for (const bytes of [Uint8Array.of(0xC3, 0x28), Uint8Array.of(0xFF, 0xFE, 0x61), Uint8Array.of(0xFE, 0xFF, 0x00),
+    Buffer.from("word,meaning\nhello,caf\u00e9", "latin1"), Buffer.from("word,meaning\nhello,test", "utf16le")]) {
+    assert.throws(() => decodeVocabularyFile(bytes), /mã hóa/);
+  }
+  assert.throws(() => decodeVocabularyFile(new Uint8Array(1048577)), /1 MB/);
+  assert.equal(decodeVocabularyFile(new Uint8Array()), "");
 });
 
 test("Excel separator hints work with BOM, supported separators and line endings", () => {
