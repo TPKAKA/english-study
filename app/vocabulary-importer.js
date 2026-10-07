@@ -40,10 +40,21 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
     setSource("");
     setFileName("");
     if (file.size > IMPORT_BYTES) { setError("File tối đa 1 MB."); return; }
-    if (!/\.(csv|tsv)$/i.test(file.name)) { setError("Chọn file .csv hoặc .tsv."); return; }
+    if (!/\.(xlsx|csv|tsv)$/i.test(file.name)) { setError("Chọn file .xlsx, .csv hoặc .tsv."); return; }
     setWorking(true);
-    try { setSource(decodeVocabularyFile(await file.arrayBuffer())); setFileName(file.name); }
-    catch { setError("Không đọc được file. Chọn CSV/TSV UTF-8 hoặc Unicode (UTF-16) có BOM."); }
+    try {
+      const buffer = await file.arrayBuffer();
+      if (/\.xlsx$/i.test(file.name)) {
+        const { vocabularyXlsxToCsv } = await import("../lib/vocabulary-xlsx.js");
+        setSource(await vocabularyXlsxToCsv(buffer));
+        setDelimiter(",");
+      } else {
+        setSource(decodeVocabularyFile(buffer));
+        setDelimiter("");
+      }
+      setFileName(file.name);
+    }
+    catch (error) { setError(error.message || "Không đọc được file. Hãy chọn lại file .xlsx, .csv hoặc .tsv."); }
     finally { setWorking(false); }
   }
   async function submit(event) {
@@ -68,12 +79,13 @@ export default function VocabularyImporter({ catalog, initialGroup, busy, onSave
           <option value="skip">Bỏ qua</option><option value="update">Cập nhật</option>
         </select></label>
         <div className="import-file-tools field-wide">
-          <input ref={fileInput} type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" hidden onChange={event => void readFile(event)} />
+          <input ref={fileInput} type="file" accept=".xlsx,.csv,.tsv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,text/tab-separated-values" hidden onChange={event => void readFile(event)} />
           <button type="button" onClick={() => fileInput.current.click()}><Upload />Chọn file</button>
-          <a className="template-link" href="/api/vocabulary-template" download="vocabulary-excel.csv"><Download />Mẫu CSV</a>
+          <a className="template-link" href="/templates/vocabulary.xlsx" download="vocabulary.xlsx"><Download />Mẫu Excel</a>
+          <a className="template-link" href="/templates/vocabulary.csv" download="vocabulary.csv"><Download />Mẫu CSV</a>
           {fileName && <span className="muted">{fileName}</span>}
         </div>
-        <label className="editor-field field-wide"><span>Dữ liệu CSV / TSV</span><textarea rows={6} value={source}
+        <label className="editor-field field-wide"><span>Dữ liệu</span><textarea rows={6} value={source}
           onChange={event => { setSource(event.target.value); setFileName(""); invalidate(); }} /></label>
         <label className="editor-field"><span>Dấu phân cách</span><select value={delimiter} onChange={event => { setDelimiter(event.target.value); invalidate(); }}>
           <option value="">Tự nhận diện</option><option value=",">Dấu phẩy</option><option value=";">Dấu chấm phẩy</option><option value={"\t"}>Tab</option>

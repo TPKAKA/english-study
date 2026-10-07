@@ -10,7 +10,7 @@ bài học, tiến độ từ vựng và lịch sử bài đọc. Project: `qhup
 - Site URL và Redirect URL trước đây dùng deployment HTML cũ `ikqettbu5`.
   Ảnh mới có bản Next.js tại `https://english-study-mp3kf4pyh-kaka-f7b5.vercel.app/`;
   cần cập nhật URL Configuration để email không đưa về giao diện cũ.
-- Workspace có IPA Anh-Anh, nút nghe, CRUD và import thẻ CSV/TSV có xem trước.
+- Workspace có IPA Anh-Anh, nút nghe, CRUD và import thẻ Excel/CSV/TSV có xem trước.
 - Đăng nhập chính dùng email + mật khẩu qua Supabase Auth, không redirect.
   Tài khoản chưa có mật khẩu xác thực email bằng mã OTP một lần, rồi đặt mật khẩu.
   Có tùy chọn áp dụng `ADMIN_PASSWORD` trên server cho đúng admin đã xác thực.
@@ -222,25 +222,24 @@ bên dưới thẻ hiện tại, cạnh nút nghe, để mở form sửa hoặc 
 
 ### Import thẻ
 
-Chạy migration import ở trên trước khi sử dụng. Chọn file `.csv`/`.tsv` UTF-8
-hoặc Unicode UTF-16 có BOM
-hoặc dán dữ liệu, chọn nhóm và bấm **Xem trước**, rồi **Import thẻ**.
-Tối đa 500 thẻ và 1 MB mỗi lần; không hỗ trợ file Excel `.xlsx` hoặc gói Anki.
-Có [file mẫu](public/templates/vocabulary.csv) tải được ngay trong form.
-Nút **Mẫu CSV** tải `vocabulary-excel.csv` từ `/api/vocabulary-template`:
-Unicode UTF-16LE có BOM, dòng đầu `sep=,` và xuống dòng CRLF cho Excel trên Windows.
-Một số bản Excel bỏ qua BOM UTF-8 khi có dòng `sep=`, nên mẫu tải cho Excel
-không dùng tổ hợp này. File nguồn ở trên vẫn là CSV UTF-8 có BOM, không có `sep=`.
-Bộ import nhận diện UTF-8/UTF-16LE/UTF-16BE, bỏ qua dòng `sep=` nếu có,
-và vẫn nhận CSV/TSV thông thường. Không đoán mã hóa ANSI để tránh nhập sai dữ liệu.
-Sau khi chỉnh trong Excel, lưu bằng **CSV UTF-8 (Comma delimited) (*.csv)**
-để giữ tiếng Việt và IPA, không dùng CSV mã hóa ANSI.
-Nếu Excel vẫn không tự tách cột, dùng **Data > From Text/CSV**, chọn mã hóa
-**65001: Unicode (UTF-8)** và dấu phân cách **Comma**, bỏ dòng `sep=,` nếu
-nó xuất hiện trong phần xem trước.
-Với mẫu Unicode tải từ website, chọn **1200: Unicode** thay vì UTF-8 khi
-nhập qua **From Text/CSV**. File Excel lưu lại dưới dạng Unicode text phân
-cách bằng tab cũng được import; đổi đuôi `.txt` thành `.tsv` khi chọn file.
+Chạy migration import ở trên một lần trước khi sử dụng. Chọn file `.xlsx`,
+`.csv`/`.tsv` hoặc dán dữ liệu, chọn nhóm và bấm **Xem trước**, rồi **Import thẻ**.
+Tối đa 500 thẻ và 1 MB mỗi lần; không hỗ trợ `.xls` cũ hoặc gói Anki.
+
+Trong Excel, dùng nút **Mẫu Excel** để tải [vocabulary.xlsx](public/templates/vocabulary.xlsx).
+File có bốn cột `word`, `meaning`, `ipa`, `example`, giữ nguyên tiếng Việt và IPA.
+Sửa/thêm các dòng rồi lưu lại dưới dạng `.xlsx` và import trực tiếp, không cần
+đổi sang CSV. Import đọc trang tính đầu tiên; các ô cần chứa văn bản.
+Giữ dữ liệu trong 2000 dòng đầu và 32 cột đầu, không thêm trang tính không liên quan.
+File nén giải nén vượt 8 MB hoặc hơn 256 thành phần bị từ chối trước khi đọc.
+
+Nút **Mẫu CSV** vẫn tải [CSV UTF-8 có BOM](public/templates/vocabulary.csv).
+CSV/TSV hỗ trợ UTF-8/UTF-16LE/UTF-16BE có BOM, bỏ qua dòng `sep=` nếu có.
+Không đoán mã hóa ANSI để tránh nhập sai dữ liệu. Nếu cần CSV trong Excel,
+dùng **Data > From Text/CSV**, chọn **65001: Unicode (UTF-8)** và dấu phân cách
+**Comma**; lưu lại bằng **CSV UTF-8 (Comma delimited) (*.csv)**.
+Endpoint CSV Unicode cũ `/api/vocabulary-template` vẫn được giữ tương thích,
+nhưng `.xlsx` là mẫu dành cho Excel để không phụ thuộc vào nhận diện mã hóa CSV.
 
 ```csv
 word,meaning,ipa,example
@@ -309,7 +308,7 @@ và tên khóa với bản HTML để tiến độ trên cùng domain được g
 ## Kiểm tra
 
 `npm test` kiểm tra cấu hình môi trường, bài học, chấm điểm, cache, gửi lại,
-đồng bộ giữa các phiên, quyền editor, CRUD, IPA, import CSV/TSV, validation và phân trang bằng
+đồng bộ giữa các phiên, quyền editor, CRUD, IPA, import XLSX/CSV/TSV, validation và phân trang bằng
 Node với API giả lập. Các kiểm thử database dùng PostgreSQL trong bộ nhớ
 qua PGlite (chỉ là devDependency), mô phỏng `auth.uid()` và các role Supabase:
 kiểm tra migration, chặn ghi cho anon/người học, không tự nâng quyền, quyền
@@ -330,8 +329,9 @@ các bảng nội dung trên project thật, không thay đổi database và kh�
 `node scripts/check-page.mjs` kiểm tra trang Next.js, các asset và chuyển
 hướng từ URL HTML cũ, cùng việc API quản trị từ chối request không đăng nhập
 qua HTTP khi server ở `http://localhost:3000` đang chạy, cùng các nút thêm/import
-và file CSV mẫu.
-Có thể đặt `TEST_URL` để kiểm tra một server khác. Playwright chưa được chạy.
+và file CSV/XLSX mẫu.
+Có thể đặt `TEST_URL` để kiểm tra một server khác. Form import XLSX/CSV/TSV đã
+được kiểm tra bằng Playwright ở 1280, 390 và 320 px với API lưu giả lập, không ghi database thật.
 Đăng nhập email, RLS trên môi trường Supabase thật và CRUD qua trình duyệt vẫn
 cần xác nhận sau khi chạy migration/cấp quyền và deploy.
 

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { decodeVocabularyFile, parseVocabularyCsv } from "../lib/vocabulary-csv.js";
+import { vocabularyXlsxToCsv } from "../lib/vocabulary-xlsx.js";
 
 const origin = process.env.TEST_URL || "http://localhost:3000";
 const response = await fetch(origin, { signal: AbortSignal.timeout(30000) });
@@ -43,6 +44,13 @@ const standard = await fetch(new URL("/templates/vocabulary.csv", origin));
 assert.equal(standard.status, 200);
 assert.deepEqual(parseVocabularyCsv(decodeVocabularyFile(await standard.arrayBuffer())), templateRows);
 console.log("PASS: standard UTF-8 CSV stays compatible");
+
+const excel = await fetch(new URL("/templates/vocabulary.xlsx", origin));
+assert.equal(excel.status, 200);
+const excelBytes = new Uint8Array(await excel.arrayBuffer());
+assert.deepEqual([...excelBytes.subarray(0, 4)], [0x50, 0x4B, 0x03, 0x04]);
+assert.deepEqual(parseVocabularyCsv(await vocabularyXlsxToCsv(excelBytes)), templateRows);
+console.log("PASS: native XLSX template downloads and imports exact Vietnamese and IPA");
 
 const legacy = await fetch(new URL("/business-english.html", origin), { redirect: "manual", signal: AbortSignal.timeout(10000) });
 assert.equal(legacy.status, 308);
