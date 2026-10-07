@@ -143,6 +143,27 @@ Nếu Supabase yêu cầu phiên mới khi đổi mật khẩu, xác thực emai
 trước khi thử. Mã OTP và mật khẩu không được lưu vào snapshot/cache của app.
 Không gửi mật khẩu, mã OTP hoặc link có token vào chat.
 
+### Duy trì đăng nhập
+
+Sau khi đăng nhập bằng mật khẩu hoặc OTP, app lưu phiên Supabase vào cookie
+host-only, `Path=/`, `SameSite=Lax`, `Secure` trên HTTPS. Cookie có thời hạn
+30 ngày và được gia hạn mỗi lần SDK lưu/làm mới phiên. Access token hết hạn
+được SDK làm mới bằng refresh token; không yêu cầu nhập mật khẩu lại mỗi ngày
+nếu phiên Supabase vẫn còn hiệu lực. Mật khẩu và mã OTP không được lưu vào cookie.
+Đăng xuất xóa toàn bộ cookie phiên và bản lưu auth cũ, không xóa tiến độ học.
+
+Phiên auth cũ của cùng project trong localStorage tự chuyển sang cookie trên
+cùng domain; cache tiến độ vẫn giữ trong localStorage. Dùng cùng một domain
+production ổn định của Vercel, không thay URL deployment sau mỗi lần build:
+cookie không thể chuyển giữa hai hostname khác nhau. Xóa cookie, dùng cửa sổ
+ẩn danh, đổi thiết bị/domain hoặc phiên bị thu hồi/hết hạn theo chính sách
+Supabase sẽ cần đăng nhập lại.
+
+Cookie được đọc bởi SDK phía trình duyệt nên không đặt `HttpOnly`; đây không
+phải cơ chế cấp quyền quản trị. API vẫn xác minh JWT với Supabase và kiểm tra
+email/grant, không tin email/role trong cookie. Không có cookie auth nào được
+ghi vào response HTML dùng chung/CDN. Bật cho phép cookie cho website này.
+
 ## Nâng cấp IPA và CRUD
 
 Trên project hiện tại, mở **SQL Editor** và chạy theo thứ tự:
@@ -322,6 +343,11 @@ tự khai báo để cấp quyền; server không tin `user_metadata` cho quyề
 Kiểm thử password/OTP xác nhận sai mật khẩu không có phiên, không tự cấp admin,
 không cache mật khẩu và endpoint mặc định chỉ sửa tài khoản admin đã xác thực;
 không trả về password hoặc chi tiết lỗi upstream. Không thử mật khẩu trên Auth thật.
+Kiểm thử cookie dùng SDK Supabase thật với Auth giả lập: thời hạn 30 ngày,
+chunk phiên dài/Unicode, chuyển auth từ localStorage, khôi phục phiên, refresh
+access token hết hạn, thu hồi phiên và đăng xuất không làm phiên cũ sống lại.
+Playwright kiểm tra reload, mở lại trình duyệt chỉ với cookie, đăng xuất nhiều
+tab và chuyển phiên cũ trên mobile; mọi request Supabase đều được giả lập.
 
 `node --env-file=.env.local scripts/check-connection.cjs` kiểm tra quyền đọc
 các bảng nội dung trên project thật, không thay đổi database và không in key.

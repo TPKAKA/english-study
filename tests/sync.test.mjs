@@ -127,6 +127,16 @@ test("guest vocabulary and reading history survive reload", async () => {
   first.sync.stop(); next.sync.stop();
 });
 
+test("blocked session cookies show an actionable login message without granting a session", async () => {
+  const app = harness({ loginError: { code: "session_storage_unavailable" } });
+  await app.start();
+  assert.equal((await app.sync.signInWithPassword("a@example.com", "private-password")).ok, false);
+  assert.equal(app.sync.snapshot().user, null);
+  assert.match(app.sync.snapshot().authMessage, /cho phép cookie/);
+  assert.equal(app.sync.snapshot().authMessage.includes("private-password"), false);
+  app.sync.stop();
+});
+
 test("signing in does not merge guest progress into an account, and signing out restores it", async () => {
   const app = harness(); await app.start();
   app.sync.mark("agenda", true); app.sync.saveAttempt("remote-work", [1, 2, 1, 1]);
