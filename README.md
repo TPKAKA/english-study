@@ -226,6 +226,13 @@ Chạy migration import ở trên trước khi sử dụng. Chọn file `.csv`/`
 hoặc dán dữ liệu, chọn nhóm và bấm **Xem trước**, rồi **Import thẻ**.
 Tối đa 500 thẻ và 1 MB mỗi lần; không hỗ trợ file Excel `.xlsx` hoặc gói Anki.
 Có [file mẫu](public/templates/vocabulary.csv) tải được ngay trong form.
+Mẫu có UTF-8 BOM và dòng đầu `sep=,` để Excel nhận diện mã hóa và dấu tách cột.
+Bộ import bỏ qua dòng khai báo này; vẫn nhận CSV/TSV thông thường không có nó.
+Sau khi chỉnh trong Excel, lưu bằng **CSV UTF-8 (Comma delimited) (*.csv)**
+để giữ tiếng Việt và IPA, không dùng CSV mã hóa ANSI.
+Nếu Excel vẫn không tự tách cột, dùng **Data > From Text/CSV**, chọn mã hóa
+**65001: Unicode (UTF-8)** và dấu phân cách **Comma**, bỏ dòng `sep=,` nếu
+nó xuất hiện trong phần xem trước.
 
 ```csv
 word,meaning,ipa,example

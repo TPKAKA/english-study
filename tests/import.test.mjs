@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseVocabularyCsv } from "../lib/vocabulary-csv.js";
 import { importVocabulary, prepareVocabularyImport } from "../lib/vocabulary-import.js";
@@ -7,6 +8,50 @@ const catalog = { groups: [{ id: "g", title: "Group" }, { id: "other", title: "O
   { word: "Agenda", group_id: "g", meaning: "Old meaning", ipa: "/old/", example: "Old example.", sort_order: 4 }
 ] };
 const change = (rows, extra = {}) => ({ rows, groupId: "g", mode: "skip", ...extra });
+
+test("downloadable CSV template identifies UTF-8 and the Excel separator and imports intact", () => {
+  const file = readFileSync(new URL("../public/templates/vocabulary.csv", import.meta.url));
+  assert.deepEqual([...file.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
+  const source = file.toString("utf8");
+  assert.match(source, /^\uFEFFsep=,\r?\nword,meaning,ipa,example\r?\n/);
+  const rows = parseVocabularyCsv(source);
+  assert.deepEqual(rows, [
+    { word: "collaborate", meaning: "hợp tác", ipa: "/kəˈlæbəreɪt/", example: "We collaborate with the design team." },
+    { word: "invoice", meaning: "hóa đơn", ipa: "/ˈɪnvɔɪs/", example: "Please check the invoice, then send it to finance." }
+  ]);
+  assert.equal(prepareVocabularyImport(change(rows), catalog).counts.create, 2);
+});
+
+test("Excel separator hints work with BOM, supported separators and line endings", () => {
+  for (const bom of ["", "\uFEFF"]) for (const delimiter of [",", ";", "\t"]) for (const newline of ["\r\n", "\n", "\r"]) {
+    const source = `${bom}sep=${delimiter}${newline}word${delimiter}meaning${newline}hello${delimiter}xin chào`;
+    assert.deepEqual(parseVocabularyCsv(source), [{ word: "hello", meaning: "xin chào" }]);
+    assert.deepEqual(parseVocabularyCsv(source, { delimiter }), [{ word: "hello", meaning: "xin chào" }]);
+    assert.deepEqual(parseVocabularyCsv(`${bom}sep=${delimiter}${newline}hello${delimiter}xin chào`, { header: false }), [
+      { word: "hello", meaning: "xin chào" }
+    ]);
+  }
+  assert.deepEqual(parseVocabularyCsv("sep=;\nword;meaning\nhello;xin chào, hello, welcome"), [
+    { word: "hello", meaning: "xin chào, hello, welcome" }
+  ]);
+});
+
+test("manual delimiters override hints and ordinary cells starting with sep= remain data", () => {
+  assert.deepEqual(parseVocabularyCsv("sep=;\nword,meaning\nhello,xin chào", { delimiter: "," }), [
+    { word: "hello", meaning: "xin chào" }
+  ]);
+  assert.deepEqual(parseVocabularyCsv("sep=,separator notation", { header: false }), [
+    { word: "sep=", meaning: "separator notation" }
+  ]);
+  assert.deepEqual(parseVocabularyCsv("word,meaning\nsep=,separator notation"), [
+    { word: "sep=", meaning: "separator notation" }
+  ]);
+  for (const source of ["sep=,\n", "\uFEFFsep=;\r\n \r\n", "sep=|\nword|meaning\nhello|xin chào"]) {
+    assert.throws(() => parseVocabularyCsv(source));
+  }
+  assert.throws(() => parseVocabularyCsv("sep=,\nword,meaning\nhello,xin chào", { delimiter: ";" }));
+  assert.throws(() => parseVocabularyCsv("sep=,\nword,meaning\n" + Array.from({ length: 501 }, (_, i) => `word${i},meaning`).join("\n")), /500/);
+});
 
 test("CSV accepts UTF-8 BOM, flexible headers, quotes, commas and embedded newlines", () => {
   assert.deepEqual(parseVocabularyCsv('\uFEFFVí dụ,Nghĩa,Từ,IPA\r\n"Say ""hello"",\nand continue.",xin chào,hello,/hello/\r\n'), [

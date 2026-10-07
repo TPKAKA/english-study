@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { parseVocabularyCsv } from "../lib/vocabulary-csv.js";
 
 const origin = process.env.TEST_URL || "http://localhost:3000";
 const response = await fetch(origin, { signal: AbortSignal.timeout(30000) });
@@ -26,8 +27,16 @@ console.log("PASS: all " + assets.size + " referenced Next.js assets load");
 
 const template = await fetch(new URL("/templates/vocabulary.csv", origin));
 assert.equal(template.status, 200);
-assert.match(await template.text(), /^word,meaning,ipa,example/);
-console.log("PASS: import CSV template loads");
+const templateBytes = new Uint8Array(await template.arrayBuffer());
+assert.deepEqual([...templateBytes.subarray(0, 3)], [0xEF, 0xBB, 0xBF]);
+const templateSource = new TextDecoder().decode(templateBytes);
+assert.match(templateSource, /^sep=,\r?\nword,meaning,ipa,example/);
+const templateRows = parseVocabularyCsv(templateSource);
+assert.equal(templateRows.length, 2);
+assert.equal(templateRows[0].meaning, "hợp tác");
+assert.equal(templateRows[0].ipa, "/kəˈlæbəreɪt/");
+assert.equal(templateRows[1].example, "Please check the invoice, then send it to finance.");
+console.log("PASS: Excel-compatible UTF-8 CSV template downloads and parses correctly");
 
 const legacy = await fetch(new URL("/business-english.html", origin), { redirect: "manual", signal: AbortSignal.timeout(10000) });
 assert.equal(legacy.status, 308);
