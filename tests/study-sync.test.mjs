@@ -162,6 +162,37 @@ test("public lesson content loads from the existing four Supabase tables", async
   app.sync.stop();
 });
 
+test("IPA stays visible as the starter deck expands from 7 to 27 cards and account progress syncs", async () => {
+  const app = harness({ user: userA });
+  const groupId = STUDY_CONTENT.groups[0].id;
+  for (const row of app.db.tables.vocabulary_words) row.ipa = "";
+  app.db.tables.vocabulary_words.push(...Array.from({ length: 20 }, (_, index) => ({
+    word: `imported-word-${index}`, group_id: groupId, meaning: "Imported meaning", example: "", ipa: "", sort_order: 7 + index
+  })));
+  const rescheduleIpa = snapshot => snapshot.content.groups.find(group => group.id === groupId).w.find(row => row[0] === "reschedule")[3];
+  try {
+    assert.equal(app.sync.snapshot().content.groups[0].w.length, 7);
+    await app.start();
+    assert.equal(app.sync.snapshot().content.groups[0].w.length, 27);
+    assert.equal(rescheduleIpa(app.sync.snapshot()), "/ˌriːˈʃedjuːl/");
+    app.db.holdNext = true;
+    app.sync.mark("reschedule", true);
+    await waitFor(() => app.db.release);
+    assert.match(app.sync.snapshot().status, /Đang đồng bộ/);
+    assert.equal(rescheduleIpa(app.sync.snapshot()), "/ˌriːˈʃedjuːl/");
+    app.db.release();
+    await waitFor(() => !app.sync.snapshot().busy);
+    assert.equal(app.sync.snapshot().status, "Đã đồng bộ");
+    assert.equal(await app.sync.reloadContent(), true);
+    assert.ok(app.changes.every(snapshot => rescheduleIpa(snapshot) === "/ˌriːˈʃedjuːl/"));
+    assert.equal(app.sync.snapshot().catalog.words.find(row => row.word === "reschedule").ipa, "");
+    assert.ok(app.db.writes.every(write => write.table === "vocabulary_progress"));
+  } finally {
+    app.db.release?.();
+    app.sync.stop();
+  }
+});
+
 test("a successfully loaded empty database does not resurrect deleted lessons", async () => {
   const app = harness();
   for (const table of ["vocabulary_groups", "vocabulary_words", "reading_passages", "reading_questions"]) app.db.tables[table] = [];

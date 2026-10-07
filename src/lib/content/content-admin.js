@@ -27,8 +27,12 @@ export async function fetchCatalog(client) {
 export function toStudyContent(catalog) {
   return {
     groups: catalog.groups.map(group => ({ id: group.id, n: group.title,
-      w: catalog.words.filter(word => word.group_id === group.id).map(word =>
-        [word.word, word.meaning, word.example, word.ipa ?? BRITISH_IPA[word.word] ?? ""])
+      w: catalog.words.filter(word => word.group_id === group.id).map(word => {
+        const storedIpa = typeof word.ipa === "string" ? word.ipa.trim() : "";
+        const lookup = word.word.trim().replace(/\s+/g, " ").toLowerCase();
+        const fallbackIpa = Object.hasOwn(BRITISH_IPA, lookup) ? BRITISH_IPA[lookup] : "";
+        return [word.word, word.meaning, word.example, storedIpa || fallbackIpa];
+      })
     })),
     readings: catalog.readings.map(reading => ({ id: reading.id, t: reading.title,
       time: reading.time_label, p: reading.passage,

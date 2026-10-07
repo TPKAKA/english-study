@@ -309,7 +309,11 @@ IPA dùng cách phát âm Anh-Anh; IPA cụm từ được ghép từ các từ 
 trọng âm thực tế có thể thay đổi theo ngữ cảnh. Tham khảo
 [ký hiệu phát âm Oxford](https://www.oxfordlearnersdictionaries.com/us/about/english/pronunciation_english)
 và [reschedule](https://www.oxfordlearnersdictionaries.com/definition/english/reschedule).
-IPA của từ mới nhập thủ công và có thể bổ sung sau. Nút nghe sử dụng
+Màn hình học ưu tiên IPA đã lưu trong database. Nếu IPA thiếu, trống hoặc chỉ
+có khoảng trắng, các từ trong bộ 42 từ mẫu dùng phiên âm Anh-Anh dự phòng;
+tra cứu không phân biệt chữ hoa/thường và khoảng trắng giữa các từ.
+Đây chỉ là dự phòng hiển thị, không ghi đè database hoặc thêm lại từ đã xóa.
+IPA của từ mới ngoài bộ mẫu cần nhập thủ công và có thể bổ sung sau. Nút nghe sử dụng
 Speech Synthesis của thiết bị với `en-GB`; giọng và khả năng phát âm phụ
 thuộc trình duyệt/hệ điều hành. IPA vẫn hiển thị nếu thiết bị không có giọng đọc.
 

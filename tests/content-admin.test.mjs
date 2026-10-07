@@ -28,14 +28,41 @@ test("all 42 starter words have British IPA, with the meeting-record sense of mi
   assert.equal(words.find(word => word[0] === "minutes")[3], "/ˈmɪnɪts/");
 });
 
-test("catalog preserves empty groups and handles old IPA columns without replacing explicit blank IPA", () => {
+test("catalog preserves empty groups and uses starter IPA when a database value is blank or missing", () => {
   const data = { ...catalog, groups: [...catalog.groups, { id: "empty", title: "Empty" }],
     words: [{ ...word, word: "agenda" }, { ...word, word: "reschedule", ipa: "" }] };
   delete data.words[0].ipa;
   const content = toStudyContent(data);
   assert.equal(content.groups[0].w[0][3], "/əˈdʒendə/");
-  assert.equal(content.groups[0].w[1][3], "");
+  assert.equal(content.groups[0].w[1][3], "/ˌriːˈʃedjuːl/");
   assert.equal(content.groups[1].w.length, 0);
+});
+
+test("all starter pronunciations survive missing, null, empty and whitespace-only database IPA", () => {
+  const starterWords = STUDY_CONTENT.groups.flatMap(group => group.w);
+  for (const ipa of [undefined, null, "", " \t\n "]) {
+    const data = { ...catalog, words: starterWords.map(([value, meaning, example]) => ({
+      word: value, meaning, example, group_id: "group", ipa
+    })) };
+    assert.deepEqual(toStudyContent(data).groups[0].w.map(row => row[3]), starterWords.map(row => row[3]));
+    assert.ok(data.words.every(row => row.ipa === ipa));
+  }
+});
+
+test("stored IPA takes priority over the starter pronunciation without modifying the catalog", () => {
+  const data = { ...catalog, words: [{ ...word, word: "reschedule", ipa: "/custom/" },
+    { ...word, ipa: "  /custom new word/  " }] };
+  const original = structuredClone(data);
+  assert.deepEqual(toStudyContent(data).groups[0].w.map(row => row[3]), ["/custom/", "/custom new word/"]);
+  assert.deepEqual(data, original);
+});
+
+test("IPA fallback normalizes lookup only and never invents IPA for unknown or prototype names", () => {
+  const values = [" Reschedule ", "FOLLOW   UP", "new unknown word", "constructor", "__proto__", "toString"];
+  const data = { ...catalog, words: values.map(value => ({ ...word, word: value, ipa: "" })) };
+  const rows = toStudyContent(data).groups[0].w;
+  assert.deepEqual(rows.map(row => row[0]), values);
+  assert.deepEqual(rows.map(row => row[3]), ["/ˌriːˈʃedjuːl/", "/ˌfɒləʊ ˈʌp/", "", "", "", ""]);
 });
 
 test("paginated content queries do not truncate a large vocabulary", async () => {
